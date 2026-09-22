@@ -88,6 +88,12 @@ object YtDlpEngine {
         val request = YoutubeDLRequest(url)
         request.addOption("--no-playlist")
         request.addOption("--newline")
+        // CRITICAL: --print (below) implies --quiet, which implies --no-progress in
+        // yt-dlp -> NO progress lines on stdout at all (progress UI stays at 0%
+        // until the download finishes). --progress explicitly re-enables the
+        // progress output, and combined with --newline each update arrives as its
+        // own stdout line that the youtubedl-android callback can parse.
+        request.addOption("--progress")
         request.addOption("-f", formatSpec)
         request.addOption("-o", outputDir.absolutePath + "/%(title)s [%(id)s].%(ext)s")
         // yt-dlp prints the final file path as the last stdout line

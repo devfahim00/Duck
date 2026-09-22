@@ -12,18 +12,13 @@ android {
         applicationId = "com.devfahim00.duck"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
-        // Split by ABI so phones get a much smaller APK (~60MB instead of 220MB).
-        // The universal APK (all ABIs) is built as well.
-        splits {
-            abi {
-                isEnable = true
-                reset()
-                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-                isUniversalApk = true
-            }
+        // Ship arm64-v8a only: covers virtually all modern Android phones and
+        // keeps the APK roughly 3x smaller than a universal build.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
         }
     }
 

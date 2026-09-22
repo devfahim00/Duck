@@ -16,5 +16,6 @@ data class DownloadItem(
     val etaSeconds: Long = -1L,
     val filePath: String? = null,
     val error: String? = null,
+    val merging: Boolean = false,
     val addedAt: Long = System.currentTimeMillis()
 )

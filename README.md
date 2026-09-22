@@ -17,9 +17,20 @@ Duck is a video downloader for Android powered by **yt-dlp**.
 - Share links from any app straight into Duck
 - Update the yt-dlp engine to the latest release from within the app
 
+## v1.1.0
+
+- **Fixed live progress**: downloads now show percentage, speed and ETA in
+  real time instead of sitting at 0% until completion (yt-dlp's `--print`
+  implied quiet mode, which silently disabled progress output; the download
+  command now passes `--progress` and every stdout line is parsed directly)
+- **Ultra-modern UI**: dark "midnight glass" redesign with Inter typography,
+  gradient progress bars with shimmer, floating pill navigation, animated
+  tab transitions, quality badges and a restyled settings sheet
+- **arm64-v8a only** builds - smaller APK (~70 MB), built by CI on every push
+
 ## Tech
 
-Kotlin, Jetpack Compose (Material 3), [youtubedl-android](https://github.com/JunkFood02/youtubedl-android) (bundles yt-dlp, Python, FFmpeg and aria2c).
+Kotlin, Jetpack Compose (Material 3), [youtubedl-android](https://github.com/JunkFood02/youtubedl-android) (bundles yt-dlp, Python, FFmpeg and aria2c). Typeface: [Inter](https://rsms.me/inter) (SIL OFL 1.0).
 
 ## Building
 

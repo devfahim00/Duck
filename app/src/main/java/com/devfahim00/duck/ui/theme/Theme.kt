@@ -1,50 +1,66 @@
 package com.devfahim00.duck.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF825500),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDF9E),
-    onPrimaryContainer = Color(0xFF291800),
-    secondary = Color(0xFF6C5C3F),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF5E0BB),
-    onSecondaryContainer = Color(0xFF241A04),
-    tertiary = Color(0xFF00696D),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFF9CF0F5),
-    onTertiaryContainer = Color(0xFF002022)
+/**
+ * Duck ships a single, deliberately dark "midnight glass" identity.
+ * Deep blue-black surfaces + warm duck-amber gradients + teal speed accents.
+ */
+private val MidnightGlassColors = darkColorScheme(
+    primary = DuckAmber,
+    onPrimary = Color(0xFF2A1D00),
+    primaryContainer = AmberContainer,
+    onPrimaryContainer = OnAmberContainer,
+    secondary = SpeedTeal,
+    onSecondary = Color(0xFF003733),
+    secondaryContainer = TealContainer,
+    onSecondaryContainer = OnTealContainer,
+    tertiary = SpeedCyan,
+    onTertiary = Color(0xFF00323C),
+    tertiaryContainer = Color(0xFF084552),
+    onTertiaryContainer = Color(0xFFB8EDF8),
+    background = Night1,
+    onBackground = InkHigh,
+    surface = Night2,
+    onSurface = InkHigh,
+    surfaceVariant = Night3,
+    onSurfaceVariant = InkMedium,
+    surfaceContainerLowest = Night0,
+    surfaceContainerLow = Night1,
+    surfaceContainer = Night2,
+    surfaceContainerHigh = Night3,
+    surfaceContainerHighest = Night4,
+    inverseSurface = InkHigh,
+    inverseOnSurface = Night1,
+    error = DangerRed,
+    onError = Color(0xFF41090B),
+    errorContainer = ErrorContainerDark,
+    onErrorContainer = OnErrorContainerDark,
+    outline = OutlineDark,
+    outlineVariant = OutlineDarkVariant,
+    scrim = Color(0xFF04060A),
 )
 
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFFFFC148),
-    onPrimary = Color(0xFF442B00),
-    primaryContainer = Color(0xFF624000),
-    onPrimaryContainer = Color(0xFFFFDF9E),
-    secondary = Color(0xFFD8C4A0),
-    onSecondary = Color(0xFF3A2F15),
-    secondaryContainer = Color(0xFF52452A),
-    onSecondaryContainer = Color(0xFFF5E0BB),
-    tertiary = Color(0xFF54D6DD),
-    onTertiary = Color(0xFF002023),
-    tertiaryContainer = Color(0xFF004F54),
-    onTertiaryContainer = Color(0xFF9CF0F5)
+private val DuckShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(30.dp),
 )
 
 @Composable
-fun DuckTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
+fun DuckTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = MidnightGlassColors,
         typography = DuckTypography,
-        content = content
+        shapes = DuckShapes,
+        content = content,
     )
 }
