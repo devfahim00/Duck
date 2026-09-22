@@ -2,7 +2,6 @@ package com.devfahim00.duck.ytdlp
 
 import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
-import org.apache.commons.io.FileUtils
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -74,7 +73,8 @@ object YtDlpUpdater {
                 throw IOException("downloaded file looks truncated/invalid")
             }
             if (!ytdlpDir.exists()) ytdlpDir.mkdirs()
-            FileUtils.copyFile(tmp, binary)
+            if (binary.exists()) binary.delete()
+            tmp.copyTo(binary, overwrite = true)
             binary.setExecutable(true)
         } finally {
             tmp.delete()
