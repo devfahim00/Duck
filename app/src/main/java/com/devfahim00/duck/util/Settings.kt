@@ -35,17 +35,17 @@ object Settings {
         turboAria2 = prefs.getBoolean("turbo", false)
     }
 
-    fun setThreads(value: Int) {
+    fun updateThreads(value: Int) {
         threads = value
         prefs.edit().putInt("threads", value).apply()
     }
 
-    fun setParallel(value: Int) {
+    fun updateParallel(value: Int) {
         parallelDownloads = value
         prefs.edit().putInt("parallel", value).apply()
     }
 
-    fun setTurbo(value: Boolean) {
+    fun updateTurbo(value: Boolean) {
         turboAria2 = value
         prefs.edit().putBoolean("turbo", value).apply()
     }

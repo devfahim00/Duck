@@ -138,7 +138,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(4, 8, 16).forEach { t ->
                         OutlinedButton(
-                            onClick = { Settings.setThreads(t) },
+                            onClick = { Settings.updateThreads(t) },
                             enabled = Settings.threads != t
                         ) { Text("$t") }
                     }
@@ -160,7 +160,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(1, 2, 3).forEach { p ->
                         OutlinedButton(
-                            onClick = { Settings.setParallel(p) },
+                            onClick = { Settings.updateParallel(p) },
                             enabled = Settings.parallelDownloads != p
                         ) { Text("$p") }
                     }
@@ -186,7 +186,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 }
                 Switch(
                     checked = Settings.turboAria2,
-                    onCheckedChange = { Settings.setTurbo(it) }
+                    onCheckedChange = { Settings.updateTurbo(it) }
                 )
             }
 
