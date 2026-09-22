@@ -7,6 +7,12 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: v0.0.1
+
 jobs:
   build:
     name: Build Duck APK
@@ -24,12 +30,40 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK (arm64-v8a)
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Decode signing keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Build signed release APK (arm64-v8a)
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.keystore"
+
+      - name: Rename APK
+        run: |
+          mkdir -p release-out
+          apk=$(find app/build/outputs/apk/release -name '*.apk' | head -n1)
+          cp "$apk" "release-out/Duck-arm64-v8a-${RELEASE_TAG}.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Duck-arm64-v8a-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: Duck-arm64-v8a-release-apk
+          path: release-out/*.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Duck ${{ env.RELEASE_TAG }}
+          body_path: RELEASE_NOTES.md
+          files: release-out/*.apk
