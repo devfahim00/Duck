@@ -2,7 +2,17 @@ package com.devfahim00.duck.ui.downloads
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -107,7 +117,11 @@ fun DownloadsScreen() {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(list, key = { it.id }) { item ->
-                    DownloadCard(item, context)
+                    DownloadCard(
+                        item = item,
+                        context = context,
+                        modifier = Modifier.animateItem()
+                    )
                 }
             }
         }
@@ -120,10 +134,10 @@ fun DownloadsScreen() {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun DownloadCard(item: DownloadItem, context: Context) {
+private fun DownloadCard(item: DownloadItem, context: Context, modifier: Modifier = Modifier) {
     GlassCard(
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .animateContentSize()
     ) {
@@ -169,11 +183,26 @@ private fun DownloadCard(item: DownloadItem, context: Context) {
                             highlight = false
                         )
                     } else {
-                        GradientProgressBar(
-                            progress = item.progress / 100f,
-                            barHeight = 6.dp,
-                            gradient = statusGradient(item.status)
-                        )
+                        // Real progress hasn't arrived yet (freshly started, or a
+                        // slow/silent extractor) - show a live indeterminate sweep
+                        // instead of a dead 0% bar, then cross-fade into the real
+                        // determinate bar the moment actual percentages start
+                        // flowing in. No more "stuck at 0%" look.
+                        AnimatedContent(
+                            targetState = item.progress > 0f,
+                            transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                            label = "progressBarSwap"
+                        ) { hasProgress ->
+                            if (hasProgress) {
+                                GradientProgressBar(
+                                    progress = item.progress / 100f,
+                                    barHeight = 6.dp,
+                                    gradient = statusGradient(item.status)
+                                )
+                            } else {
+                                IndeterminateGradientBar(barHeight = 6.dp)
+                            }
+                        }
                         MetaRow(
                             left = item.speed ?: "Connecting…",
                             right = if (item.etaSeconds >= 0) {
@@ -284,26 +313,40 @@ private fun StatusAvatar(item: DownloadItem) {
             .clip(CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        when (item.status) {
-            DownloadStatus.DOWNLOADING -> {
-                val progress = if (item.merging) 0.25f else item.progress / 100f
-                CircularProgressIndicator(
-                    progress = { progress.coerceIn(0.01f, 1f) },
-                    strokeWidth = 3.dp,
-                    color = statusGradient(item.status).first(),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    modifier = Modifier.size(size)
-                )
+        AnimatedContent(
+            targetState = item.status,
+            transitionSpec = {
+                (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.7f)) togetherWith
+                    fadeOut(tween(140))
+            },
+            label = "statusAvatar"
+        ) { status ->
+            when (status) {
+                DownloadStatus.DOWNLOADING -> {
+                    val progress = if (item.merging) 0.25f else item.progress / 100f
+                    val animatedProgress by animateFloatAsState(
+                        targetValue = progress.coerceIn(0.01f, 1f),
+                        animationSpec = tween(350),
+                        label = "avatarProgress"
+                    )
+                    CircularProgressIndicator(
+                        progress = { animatedProgress },
+                        strokeWidth = 3.dp,
+                        color = statusGradient(status).first(),
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        modifier = Modifier.size(size)
+                    )
+                }
+
+                DownloadStatus.QUEUED -> AvatarIcon(R.drawable.ic_layers, InkMedium)
+
+                DownloadStatus.COMPLETED -> AvatarIcon(R.drawable.ic_check_circle, statusColor(status))
+
+                DownloadStatus.FAILED -> AvatarIcon(R.drawable.ic_error, DangerRed)
+
+                DownloadStatus.CANCELLED -> AvatarIcon(R.drawable.ic_close, InkMedium)
             }
-
-            DownloadStatus.QUEUED -> AvatarIcon(R.drawable.ic_layers, InkMedium)
-
-            DownloadStatus.COMPLETED -> AvatarIcon(R.drawable.ic_check_circle, statusColor(item.status))
-
-            DownloadStatus.FAILED -> AvatarIcon(R.drawable.ic_error, DangerRed)
-
-            DownloadStatus.CANCELLED -> AvatarIcon(R.drawable.ic_close, InkMedium)
         }
     }
 }
@@ -327,13 +370,26 @@ private fun AvatarIcon(resId: Int, tint: Color) {
 
 @Composable
 private fun PercentBadge(item: DownloadItem) {
-    if (item.status == DownloadStatus.DOWNLOADING && !item.merging) {
-        Text(
-            "${item.progress.toInt()}%",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = statusColor(item.status)
-        )
+    AnimatedVisibility(
+        visible = item.status == DownloadStatus.DOWNLOADING && !item.merging,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(150))
+    ) {
+        AnimatedContent(
+            targetState = item.progress.toInt(),
+            transitionSpec = {
+                (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 3 }) togetherWith
+                    (fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 3 })
+            },
+            label = "percent"
+        ) { percent ->
+            Text(
+                "$percent%",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = statusColor(item.status)
+            )
+        }
     }
 }
 

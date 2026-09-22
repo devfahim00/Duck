@@ -1,9 +1,13 @@
 package com.devfahim00.duck.util
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import java.util.Locale
@@ -12,7 +16,25 @@ object FileUtils {
 
     /** All Files Access only exists on Android 11+ (API 30+). */
     fun hasAllFilesAccess(): Boolean =
-        android.os.Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
+        Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
+
+    /**
+     * SDK-aware storage permission check used at app startup:
+     *  - Android 11+ (API 30+): needs "All files access" (MANAGE_EXTERNAL_STORAGE),
+     *    granted through a dedicated Settings screen, not a runtime dialog.
+     *  - Android 6-10 (API 23-29): needs the classic WRITE_EXTERNAL_STORAGE runtime
+     *    permission.
+     *  - Older/newer edge cases where neither applies: treat as granted so we never
+     *    block the app on a permission that doesn't exist for that OS version.
+     */
+    fun hasStoragePermission(context: Context): Boolean = when {
+        Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
+        Build.VERSION.SDK_INT >= 23 -> ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        else -> true
+    }
 
     /**
      * Public Downloads/Duck when All Files Access is granted,

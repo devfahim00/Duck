@@ -57,7 +57,8 @@ import coil.compose.AsyncImage
 import com.devfahim00.duck.R
 import com.devfahim00.duck.ui.common.GlassCard
 import com.devfahim00.duck.ui.common.GradientButton
-import com.devfahim00.duck.ui.common.IndeterminateGradientBar
+import com.devfahim00.duck.ui.common.SkeletonBlock
+import com.devfahim00.duck.ui.common.rememberShimmerProgress
 import com.devfahim00.duck.ui.theme.DangerRed
 import com.devfahim00.duck.ui.theme.DuckGradient
 import com.devfahim00.duck.ui.theme.InkHigh
@@ -142,19 +143,23 @@ fun HomeScreen(viewModel: HomeViewModel, initialUrl: String?) {
                 is FetchState.Error -> ErrorCard(s.message)
 
                 is FetchState.Ready -> {
-                    VideoInfoCard(s.info)
-                    Text(
-                        "Choose quality",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = InkHigh,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                    s.options.forEachIndexed { index, option ->
-                        FormatRow(
-                            option = option,
-                            highlight = index == 0 && !option.audioOnly,
-                            onClick = { viewModel.startDownload(context, option) }
+                    RevealIn(delayMillis = 0) { VideoInfoCard(s.info) }
+                    RevealIn(delayMillis = 60) {
+                        Text(
+                            "Choose quality",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = InkHigh,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
+                    }
+                    s.options.forEachIndexed { index, option ->
+                        RevealIn(delayMillis = 90 + index * 45) {
+                            FormatRow(
+                                option = option,
+                                highlight = index == 0 && !option.audioOnly,
+                                onClick = { viewModel.startDownload(context, option) }
+                            )
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                 }
@@ -306,18 +311,99 @@ private fun ShareHint() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Small fade + slide-up reveal, staggered per item, so the "Ready" state
+// (video card + quality rows) settles in gracefully instead of popping in
+// all at once.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun RevealIn(delayMillis: Int, content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(delayMillis.toLong())
+        visible = true
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(280)) + slideInVertically(tween(280)) { it / 5 }
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun LoadingSkeleton() {
+    // One shared shimmer sweep drives every block below, so the whole card
+    // reads as a single sheet of light passing over it - a proper skeleton
+    // screen shaped like the video card it's about to become, instead of a
+    // generic progress bar standing in for "loading".
+    val shimmer = rememberShimmerProgress()
+
     GlassCard(shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(
-                Modifier
+            SkeletonBlock(
+                modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .aspectRatio(16f / 9f),
+                shimmerProgress = shimmer,
+                shape = RoundedCornerShape(14.dp)
             )
-            IndeterminateGradientBar()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SkeletonBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.7f)
+                        .height(16.dp),
+                    shimmerProgress = shimmer
+                )
+                SkeletonBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.4f)
+                        .height(12.dp),
+                    shimmerProgress = shimmer
+                )
+            }
+            Spacer(Modifier.height(2.dp))
+            SkeletonBlock(
+                modifier = Modifier
+                    .fillMaxWidth(0.35f)
+                    .height(14.dp),
+                shimmerProgress = shimmer
+            )
+            repeat(2) {
+                SkeletonFormatRow(shimmer)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkeletonFormatRow(shimmer: Float) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        SkeletonBlock(
+            modifier = Modifier.size(width = 52.dp, height = 36.dp),
+            shimmerProgress = shimmer,
+            shape = RoundedCornerShape(11.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SkeletonBlock(
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .height(13.dp),
+                shimmerProgress = shimmer
+            )
+            SkeletonBlock(
+                modifier = Modifier
+                    .fillMaxWidth(0.3f)
+                    .height(11.dp),
+                shimmerProgress = shimmer
+            )
         }
     }
 }

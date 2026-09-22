@@ -105,12 +105,18 @@ object YtDlpEngine {
         }
 
         if (turbo) {
-            // youtubedl-android ships aria2c as libaria2c.so; the library injects
-            // the extra downloader args (summary interval, CA cert) automatically.
+            // youtubedl-android ships aria2c as libaria2c.so.
+            // BUG FIX: aria2c's own default --summary-interval is 60 seconds, so
+            // without setting it explicitly the UI would sit at 0% / "Connecting"
+            // for up to a full minute (or the whole download, if it finishes
+            // sooner) with no progress lines at all, then jump straight to
+            // completed once the process exited. Forcing summary-interval=1
+            // makes aria2c print a fresh line every second so the progress bar
+            // actually animates while the file is downloading.
             request.addOption("--downloader", "libaria2c.so")
             request.addOption(
                 "--external-downloader-args",
-                "aria2c:-x $threads -s $threads -k 1M"
+                "aria2c:-x $threads -s $threads -k 1M --summary-interval=1"
             )
         } else {
             request.addOption("-N", threads)

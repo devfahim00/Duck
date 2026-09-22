@@ -194,7 +194,7 @@ fun IndeterminateGradientBar(
     val x by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 1200, easing = LinearEasing)),
+        animationSpec = infiniteRepeatable(tween(durationMillis = 1300, easing = LinearEasing)),
         label = "x"
     )
     val shape = RoundedCornerShape(50)
@@ -205,13 +205,62 @@ fun IndeterminateGradientBar(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
     ) {
+        // The moving block is fully off-screen at both x=0 (parked just left of
+        // the bar) and x=1 (parked just right of it), so the loop restart is
+        // invisible - no more "teleporting" pop back to the start.
         Box(
             Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(0.4f)
-                .graphicsLayer { translationX = x * 1.5f * size.width }
+                .fillMaxWidth(0.36f)
+                .graphicsLayer { translationX = (x * 1.72f - 0.36f) * size.width }
                 .clip(shape)
                 .background(Brush.horizontalGradient(gradient))
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton loading: shimmering placeholder blocks that mirror the shape of
+// the real content, used while data is being fetched (e.g. analyzing a link).
+// A single shared shimmer sweep is driven from the parent so every block in
+// a skeleton group animates in sync, like one sheet of light passing over
+// the whole card.
+// ---------------------------------------------------------------------------
+
+@Composable
+fun rememberShimmerProgress(durationMillis: Int = 1400): Float {
+    val transition = rememberInfiniteTransition(label = "skeletonShimmer")
+    val x by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(durationMillis, easing = LinearEasing)),
+        label = "skeletonX"
+    )
+    return x
+}
+
+@Composable
+fun SkeletonBlock(
+    modifier: Modifier = Modifier,
+    shimmerProgress: Float,
+    shape: Shape = RoundedCornerShape(8.dp)
+) {
+    val base = MaterialTheme.colorScheme.surfaceContainerHighest
+    val highlight = InkHigh.copy(alpha = 0.10f)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(base)
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .graphicsLayer { translationX = (shimmerProgress * 2.6f - 0.8f) * size.width }
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color.Transparent, highlight, Color.Transparent)
+                    )
+                )
         )
     }
 }

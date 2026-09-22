@@ -1,6 +1,13 @@
 package com.devfahim00.duck
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,14 +51,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.devfahim00.duck.downloads.DownloadManager
 import com.devfahim00.duck.downloads.DownloadStatus
 import com.devfahim00.duck.ui.common.DuckLogo
+import com.devfahim00.duck.ui.common.GlassCard
+import com.devfahim00.duck.ui.common.GradientButton
 import com.devfahim00.duck.ui.downloads.DownloadsScreen
 import com.devfahim00.duck.ui.home.HomeScreen
 import com.devfahim00.duck.ui.home.HomeViewModel
@@ -66,9 +77,18 @@ import com.devfahim00.duck.ytdlp.YtDlpEngine
 private val NavDark = Color(0xFF241800)
 
 @Composable
-fun DuckRoot(initialUrl: String?, onConsumeInitialUrl: () -> Unit) {
+fun DuckRoot(
+    initialUrl: String?,
+    onConsumeInitialUrl: () -> Unit,
+    storageGranted: Boolean = true,
+    onRequestStoragePermission: () -> Unit = {}
+) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    // "Maybe later" only dismisses the gate for this app session - Duck checks
+    // again the next time the app is opened, per the requirement that storage
+    // access is verified fresh on every launch.
+    var permissionDismissedThisSession by rememberSaveable { mutableStateOf(false) }
 
     val homeViewModel: HomeViewModel = viewModel {
         HomeViewModel(YtDlpEngine, DownloadManager)
@@ -150,8 +170,111 @@ fun DuckRoot(initialUrl: String?, onConsumeInitialUrl: () -> Unit) {
         SettingsSheet(onDismiss = { showSettings = false })
     }
 
+    AnimatedVisibility(
+        visible = !storageGranted && !permissionDismissedThisSession,
+        enter = fadeIn(tween(260)),
+        exit = fadeOut(tween(200))
+    ) {
+        StoragePermissionGate(
+            onGrant = onRequestStoragePermission,
+            onDismiss = { permissionDismissedThisSession = true }
+        )
+    }
+
     LaunchedEffect(initialUrl) {
         if (!initialUrl.isNullOrBlank()) onConsumeInitialUrl()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Full-screen gate shown until storage access is granted. Explains why Duck
+// needs it (so downloads land in the public Downloads/Duck folder instead of
+// a private app-only folder) and hands off to the SDK-appropriate permission
+// flow started from MainActivity.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun StoragePermissionGate(onGrant: () -> Unit, onDismiss: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xE60A0E16)),
+        contentAlignment = Alignment.Center
+    ) {
+        val transition = rememberInfiniteTransition(label = "permissionPulse")
+        val pulse by transition.animateFloat(
+            initialValue = 0.94f,
+            targetValue = 1.06f,
+            animationSpec = infiniteRepeatable(
+                tween(1400, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulse"
+        )
+
+        GlassCard(
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .graphicsLayer { scaleX = pulse; scaleY = pulse }
+                        .clip(CircleShape)
+                        .background(Brush.horizontalGradient(DuckGradient)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_cloud_download),
+                        contentDescription = null,
+                        tint = Color(0xFF241800),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Text(
+                    "Storage access needed",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = InkHigh,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    "Grant storage access so your downloads are saved to Downloads/Duck " +
+                        "where you can find and share them from any app. Without it, files " +
+                        "stay in a private folder only Duck can open.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkMedium,
+                    textAlign = TextAlign.Center
+                )
+
+                GradientButton(
+                    text = "Grant storage access",
+                    icon = painterResource(R.drawable.ic_arrow_forward),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .padding(top = 4.dp),
+                    onClick = onGrant
+                )
+
+                Text(
+                    "Maybe later",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = InkMedium,
+                    modifier = Modifier
+                        .padding(top = 2.dp, bottom = 2.dp)
+                        .clickable(onClick = onDismiss)
+                )
+            }
+        }
     }
 }
 
@@ -263,6 +386,7 @@ private fun NavItem(
                     }
                 )
                 .clickable(onClick = onClick)
+                .animateContentSize(tween(220))
                 .padding(horizontal = if (selected) 20.dp else 14.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
