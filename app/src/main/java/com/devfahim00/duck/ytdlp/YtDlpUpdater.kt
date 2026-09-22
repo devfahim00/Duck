@@ -10,54 +10,47 @@ import java.net.URL
 /**
  * Wraps YoutubeDL.getInstance().updateYoutubeDL().
  *
- * Why the plain library call fails so often for us: youtubedl-android's updater hits
- * https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest directly and unauthenticated
- * to check + resolve the download URL. GitHub allows only 60 anonymous requests/hour
- * *per source IP*. On carrier mobile networks (very common for our BD users, heavy CGNAT)
- * huge numbers of subscribers share one public IP, so that quota is exhausted almost
- * immediately and the API responds 403. The library just wraps that as
- * "failed to update youtube-dl" with no actionable detail.
+ * The app is pinned to a specific yt-dlp release ([PINNED_VERSION]) rather than
+ * whatever GitHub reports as "latest": a known-good version avoids surprise
+ * regressions and lets us test one exact build. update() therefore does NOT call
+ * the library's own "latest" updater (which also hits the rate-limited
+ * api.github.com/.../releases/latest endpoint — see below) and instead always
+ * (re)installs [PINNED_VERSION] via a direct, non-API download.
  *
- * Fallback: fetch the binary straight from GitHub's "latest release" redirect
- * (github.com/.../releases/latest/download/yt-dlp). That endpoint is a plain CDN redirect,
- * NOT the rate-limited REST API, so it keeps working even when api.github.com is throttled.
- * We drop the result into the exact directory the bundled library already expects, so the
- * rest of the app (YtDlpEngine, version()) keeps working unmodified.
+ * Why not the library's own updater: youtubedl-android's updater hits
+ * https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest directly and
+ * unauthenticated. GitHub allows only 60 anonymous requests/hour *per source IP*.
+ * On carrier mobile networks (very common for our BD users, heavy CGNAT) huge
+ * numbers of subscribers share one public IP, so that quota is exhausted almost
+ * immediately and the call fails with an opaque "failed to update youtube-dl".
+ *
+ * Instead we fetch the pinned tag's asset directly
+ * (github.com/.../releases/download/$PINNED_VERSION/yt-dlp), a plain CDN redirect,
+ * NOT the rate-limited REST API, so it keeps working even when api.github.com is
+ * throttled. We drop the result into the exact directory the bundled library
+ * already expects, so the rest of the app (YtDlpEngine, version()) keeps working
+ * unmodified.
  */
 object YtDlpUpdater {
 
+    /** yt-dlp release this app is pinned to. Bump this string to move to a new version. */
+    const val PINNED_VERSION = "2026.08.19"
+
     private const val DIRECT_DOWNLOAD_URL =
-        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+        "https://github.com/yt-dlp/yt-dlp/releases/download/$PINNED_VERSION/yt-dlp"
 
     sealed class Result {
         data class Success(val message: String) : Result()
         data class Failure(val message: String) : Result()
     }
 
-    /** Call from Dispatchers.IO. */
+    /** Call from Dispatchers.IO. Always (re)installs [PINNED_VERSION]. */
     fun update(context: Context): Result {
-        // 1) Try the library's own updater first: it's a no-op when already current and
-        // records the proper version tag when it succeeds.
-        val primary = runCatching { YoutubeDL.getInstance().updateYoutubeDL(context) }
-        primary.getOrNull()?.let {
-            return Result.Success(
-                when (it) {
-                    YoutubeDL.UpdateStatus.DONE -> "yt-dlp updated to the latest release"
-                    YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> "yt-dlp is already up to date"
-                }
-            )
-        }
-
-        val primaryError = primary.exceptionOrNull()
-
-        // 2) Primary path failed — most commonly the api.github.com rate limit above.
-        // Fall back to a direct, non-API download of the latest release asset.
         return try {
             downloadDirect(context)
-            Result.Success("yt-dlp updated to the latest release (direct download)")
-        } catch (fallbackError: Exception) {
-            val reason = primaryError?.message ?: fallbackError.message ?: "unknown error"
-            Result.Failure("Update failed: ${reason.take(160)}")
+            Result.Success("yt-dlp pinned to $PINNED_VERSION")
+        } catch (error: Exception) {
+            Result.Failure("Update failed: ${error.message?.take(160) ?: "unknown error"}")
         }
     }
 
