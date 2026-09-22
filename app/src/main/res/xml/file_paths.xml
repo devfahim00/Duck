@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- public Downloads/Duck when All Files Access is granted -->
+    <external-path
+        name="duck_public"
+        path="Download/Duck/" />
+    <!-- app-scoped fallback -->
+    <external-files-path
+        name="duck_app"
+        path="Duck/" />
+</paths>
