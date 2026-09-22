@@ -52,6 +52,7 @@ import com.devfahim00.duck.ui.theme.InkMedium
 import com.devfahim00.duck.ui.theme.SpeedGradient
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.util.Settings
+import com.devfahim00.duck.ytdlp.YtDlpUpdater
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -71,13 +72,10 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     LaunchedEffect(updating) {
         if (!updating) return@LaunchedEffect
         updateResult = withContext(Dispatchers.IO) {
-            runCatching {
-                when (YoutubeDL.getInstance().updateYoutubeDL(context)) {
-                    YoutubeDL.UpdateStatus.DONE -> "yt-dlp updated to the latest release"
-                    YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> "yt-dlp is already up to date"
-                    null -> "Unknown update result"
-                }
-            }.getOrElse { "Update failed: ${it.message?.take(120)}" }
+            when (val result = YtDlpUpdater.update(context)) {
+                is YtDlpUpdater.Result.Success -> result.message
+                is YtDlpUpdater.Result.Failure -> result.message
+            }
         }
         engineVersion = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
         updating = false
