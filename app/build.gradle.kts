@@ -15,8 +15,15 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
-        ndk {
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
+        // Split by ABI so phones get a much smaller APK (~60MB instead of 220MB).
+        // The universal APK (all ABIs) is built as well.
+        splits {
+            abi {
+                isEnable = true
+                reset()
+                include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                isUniversalApk = true
+            }
         }
     }
 
