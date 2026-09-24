@@ -12,8 +12,8 @@ android {
         applicationId = "com.devfahim00.duck"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.0.0"
 
         // Ship arm64-v8a only: covers virtually all modern Android phones and
         // keeps the APK roughly 3x smaller than a universal build.

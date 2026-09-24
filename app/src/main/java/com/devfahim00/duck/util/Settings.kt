@@ -13,6 +13,9 @@ import androidx.compose.runtime.setValue
  */
 object Settings {
 
+    /** Hard ceiling for connections per download (yt-dlp -N / aria2c -x -s). */
+    const val MAX_THREADS = 32
+
     private lateinit var prefs: SharedPreferences
 
     /** Connections/fragments per download (yt-dlp -N or aria2c -x/-s). */
@@ -30,14 +33,15 @@ object Settings {
     fun load(context: Context) {
         prefs = context.applicationContext
             .getSharedPreferences("duck_settings", Context.MODE_PRIVATE)
-        threads = prefs.getInt("threads", 8)
+        threads = prefs.getInt("threads", 8).coerceIn(1, MAX_THREADS)
         parallelDownloads = prefs.getInt("parallel", 2)
         turboAria2 = prefs.getBoolean("turbo", false)
     }
 
     fun updateThreads(value: Int) {
-        threads = value
-        prefs.edit().putInt("threads", value).apply()
+        val capped = value.coerceIn(1, MAX_THREADS)
+        threads = capped
+        prefs.edit().putInt("threads", capped).apply()
     }
 
     fun updateParallel(value: Int) {

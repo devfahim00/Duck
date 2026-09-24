@@ -53,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -72,7 +73,11 @@ import com.devfahim00.duck.ui.theme.InkHigh
 import com.devfahim00.duck.ui.theme.InkMedium
 import com.devfahim00.duck.ui.theme.NightGradient
 import com.devfahim00.duck.ui.theme.SpeedTeal
+import com.devfahim00.duck.ui.update.UpdateDialog
+import com.devfahim00.duck.util.AppUpdater
 import com.devfahim00.duck.ytdlp.YtDlpEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private val NavDark = Color(0xFF241800)
 
@@ -89,6 +94,20 @@ fun DuckRoot(
     // again the next time the app is opened, per the requirement that storage
     // access is verified fresh on every launch.
     var permissionDismissedThisSession by rememberSaveable { mutableStateOf(false) }
+
+    // ---- Automatic app update check (silent, once per launch) ----
+    // Compares the installed version against the latest GitHub Release and
+    // pops a dialog when a newer build is published. Manual checks live in
+    // the Settings sheet.
+    val context = LocalContext.current
+    var updateRelease by remember { mutableStateOf<AppUpdater.Release?>(null) }
+    var installedVersion by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        installedVersion = AppUpdater.currentVersion(context)
+        val result = withContext(Dispatchers.IO) { AppUpdater.check(context) }
+        updateRelease = (result as? AppUpdater.Result.Available)?.release
+    }
 
     val homeViewModel: HomeViewModel = viewModel {
         HomeViewModel(YtDlpEngine, DownloadManager)
@@ -168,6 +187,15 @@ fun DuckRoot(
 
     if (showSettings) {
         SettingsSheet(onDismiss = { showSettings = false })
+    }
+
+    updateRelease?.let { release ->
+        UpdateDialog(
+            release = release,
+            currentVersion = installedVersion,
+            onDownload = { AppUpdater.openLink(context, release.apkUrl) },
+            onDismiss = { updateRelease = null }
+        )
     }
 
     AnimatedVisibility(

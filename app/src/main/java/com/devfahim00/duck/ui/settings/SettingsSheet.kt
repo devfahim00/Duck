@@ -50,6 +50,7 @@ import com.devfahim00.duck.ui.theme.InkHigh
 import com.devfahim00.duck.ui.theme.InkLow
 import com.devfahim00.duck.ui.theme.InkMedium
 import com.devfahim00.duck.ui.theme.SpeedGradient
+import com.devfahim00.duck.util.AppUpdater
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.util.Settings
 import com.devfahim00.duck.ytdlp.YtDlpUpdater
@@ -65,6 +66,11 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     var updateResult by remember { mutableStateOf<String?>(null) }
     var engineVersion by remember { mutableStateOf<String?>(null) }
 
+    // ---- Manual app update check state ----
+    var checking by remember { mutableStateOf(false) }
+    var appUpdateMessage by remember { mutableStateOf<String?>(null) }
+    var appUpdateRelease by remember { mutableStateOf<AppUpdater.Release?>(null) }
+
     LaunchedEffect(Unit) {
         engineVersion = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
     }
@@ -79,6 +85,26 @@ fun SettingsSheet(onDismiss: () -> Unit) {
         }
         engineVersion = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
         updating = false
+    }
+
+    // Manual "Check for updates" (Settings > App updates): asks GitHub
+    // Releases for the latest version and reports back.
+    LaunchedEffect(checking) {
+        if (!checking) return@LaunchedEffect
+        when (val result = withContext(Dispatchers.IO) { AppUpdater.check(context) }) {
+            is AppUpdater.Result.UpToDate -> {
+                appUpdateRelease = null
+                appUpdateMessage = "You are up to date - Duck ${result.currentVersion} is the latest version."
+            }
+            is AppUpdater.Result.Available -> {
+                appUpdateMessage = null
+                appUpdateRelease = result.release
+            }
+            is AppUpdater.Result.Error -> {
+                appUpdateMessage = "Check failed: ${result.message}"
+            }
+        }
+        checking = false
     }
 
     ModalBottomSheet(
@@ -150,10 +176,10 @@ fun SettingsSheet(onDismiss: () -> Unit) {
             SectionCard(
                 iconRes = R.drawable.ic_speed,
                 title = "Download threads",
-                subtitle = "Connections per download - more threads means faster downloads on fast networks."
+                subtitle = "Connections per download - more threads means faster downloads on fast networks. Up to ${Settings.MAX_THREADS}."
             ) {
                 PillSelector(
-                    options = listOf(4, 8, 16),
+                    options = listOf(4, 8, 16, 32),
                     selected = Settings.threads,
                     onSelect = { Settings.updateThreads(it) }
                 )
@@ -237,6 +263,64 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                         color = if (it.startsWith("Update failed")) DangerRed else InkMedium
                     )
                 }
+            }
+
+            // ----- App updates -----
+            SectionCard(
+                iconRes = R.drawable.ic_cloud_download,
+                title = "App updates",
+                subtitle = "Duck checks GitHub Releases automatically on launch - " +
+                    "or check yourself right now."
+            ) {
+                GradientButton(
+                    text = if (checking) "Checking…" else "Check for updates",
+                    icon = painterResource(R.drawable.ic_refresh),
+                    enabled = !checking,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    onClick = { checking = true }
+                )
+                appUpdateRelease?.let { release ->
+                    Text(
+                        "Duck ${release.version} is available!",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SpeedGradient.first()
+                    )
+                    GradientButton(
+                        text = "Download ${release.version}",
+                        icon = painterResource(R.drawable.ic_download),
+                        gradient = SpeedGradient,
+                        contentColor = Color(0xFF003733),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        onClick = { AppUpdater.openLink(context, release.apkUrl) }
+                    )
+                }
+                appUpdateMessage?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (it.startsWith("Check failed")) DangerRed else InkMedium
+                    )
+                }
+            }
+
+            // ----- Telegram -----
+            SectionCard(
+                iconRes = R.drawable.ic_link,
+                title = "Telegram",
+                subtitle = "News, updates and support from the owner - ${AppUpdater.TELEGRAM_HANDLE}"
+            ) {
+                GradientButton(
+                    text = "Open Telegram",
+                    icon = painterResource(R.drawable.ic_link),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    onClick = { AppUpdater.openLink(context, AppUpdater.TELEGRAM_URL) }
+                )
             }
 
             Spacer(Modifier.height(26.dp))

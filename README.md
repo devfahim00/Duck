@@ -11,22 +11,25 @@ Duck is a video downloader for Android powered by **yt-dlp**.
 - Video + audio streams are merged automatically with the bundled FFmpeg
 - Built-in download manager with queue, live progress, speed and ETA, cancel / retry, and history
 - Multi-threaded downloading for extra speed:
-  - concurrent fragment downloads (yt-dlp `-N`)
+  - concurrent fragment downloads (yt-dlp `-N`), up to 32 threads
   - optional Turbo mode using the bundled aria2c multi-connection downloader
 - Multiple simultaneous downloads
 - Share links from any app straight into Duck
 - Update the yt-dlp engine to the latest release from within the app
+- Auto app update checks against GitHub Releases on every launch, plus a manual check in Settings
+- Telegram support from the owner: [@droxilen](https://t.me/droxilen)
 
-## v1.1.0
+## v1.0.0
 
-- **Fixed live progress**: downloads now show percentage, speed and ETA in
-  real time instead of sitting at 0% until completion (yt-dlp's `--print`
-  implied quiet mode, which silently disabled progress output; the download
-  command now passes `--progress` and every stdout line is parsed directly)
-- **Ultra-modern UI**: dark "midnight glass" redesign with Inter typography,
-  gradient progress bars with shimmer, floating pill navigation, animated
-  tab transitions, quality badges and a restyled settings sheet
-- **arm64-v8a only** builds - smaller APK (~70 MB), built by CI on every push
+- **Automatic app updates** — silent GitHub Releases check on launch with a
+  one-tap APK download dialog
+- **Manual update check** in Settings → *App updates*
+- **Up to 32 download threads** (4 / 8 / 16 / 32)
+- **Telegram** — news and support from the owner at
+  [@droxilen](https://t.me/droxilen)
+- First tagged release: CI builds a signed release APK and publishes it to
+  [Releases](https://github.com/devfahim00/Duck/releases) with the full
+  changelog on every `v*` tag
 
 ## Tech
 
@@ -34,6 +37,8 @@ Kotlin, Jetpack Compose (Material 3), [youtubedl-android](https://github.com/Jun
 
 ## Building
 
-Every push is built by GitHub Actions - grab the APK from the workflow artifacts.
+Every push is built by GitHub Actions. Tagged `v*` pushes publish a signed
+release APK to [Releases](https://github.com/devfahim00/Duck/releases);
+branch pushes upload the APK as a workflow artifact.
 
 Locally: `./gradlew assembleDebug` (JDK 17, Android SDK 35).
