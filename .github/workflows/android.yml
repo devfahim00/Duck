@@ -43,12 +43,33 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       - name: Build signed release APK (arm64-v8a)
+        id: build
+        continue-on-error: true
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle_build.log"
+
+      # Log downloads go through per-run Azure blob storage, which some
+      # tooling (sandboxed agents, restrictive egress proxies) can't reach.
+      # Echoing the failure tail as ::error:: turns it into check-run
+      # annotations instead, which ARE served from api.github.com and stay
+      # reachable everywhere. Only the last 60 lines to stay well under
+      # GitHub's annotation limits.
+      - name: Surface build failure (annotations, since log blobs aren't universally reachable)
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "----- last 200 lines of gradle output -----"
+          tail -n 200 "$RUNNER_TEMP/gradle_build.log" || true
+          tail -n 60 "$RUNNER_TEMP/gradle_build.log" | while IFS= read -r line; do
+            safe=$(printf '%s' "$line" | sed 's/%/%25/g')
+            echo "::error::$safe"
+          done
+          exit 1
 
       - name: Remove decoded keystore
         if: always()
