@@ -64,7 +64,11 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsSheet(onDismiss: () -> Unit) {
+fun SettingsSheet(
+    onDismiss: () -> Unit,
+    onOpenCookieBrowser: () -> Unit = {},
+    cookieImportTick: Int = 0
+) {
     val context = LocalContext.current
     var updating by remember { mutableStateOf(false) }
     var updateResult by remember { mutableStateOf<String?>(null) }
@@ -77,6 +81,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
 
     // ---- Cookies state ----
     var cookiesPresent by remember { mutableStateOf(CookieStore.exists(context)) }
+    var cookieStats by remember { mutableStateOf(CookieStore.stats(context)) }
     var cookiesMessage by remember { mutableStateOf<String?>(null) }
     val cookiePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -85,11 +90,19 @@ fun SettingsSheet(onDismiss: () -> Unit) {
         val error = CookieStore.import(context, uri)
         if (error == null) {
             cookiesPresent = true
+            cookieStats = CookieStore.stats(context)
             Settings.updateCookiesEnabled(true)
             cookiesMessage = null
         } else {
             cookiesMessage = error
         }
+    }
+
+    // Fresh cookie state whenever the built-in browser imported something.
+    LaunchedEffect(cookieImportTick) {
+        cookiesPresent = CookieStore.exists(context)
+        cookieStats = CookieStore.stats(context)
+        if (cookiesPresent) cookiesMessage = null
     }
 
     LaunchedEffect(Unit) {
@@ -265,13 +278,33 @@ fun SettingsSheet(onDismiss: () -> Unit) {
             SectionCard(
                 iconRes = R.drawable.ic_cookie,
                 title = "Cookies",
-                subtitle = if (cookiesPresent) {
-                    "cookies.txt imported - unlocks sites that need a login"
-                } else {
-                    "Some sites (Instagram, Facebook, age-restricted YouTube) only work with cookies from a logged-in browser"
+                subtitle = when {
+                    cookieStats != null ->
+                        "${cookieStats!!.cookies} cookies for ${cookieStats!!.sites} site(s) - " +
+                            "unlocks sites that need a login"
+                    cookiesPresent ->
+                        "cookies.txt imported - unlocks sites that need a login"
+                    else ->
+                        "Some sites (Instagram, Facebook, age-restricted YouTube, xnxx…) only " +
+                            "work with cookies from a logged-in browser"
                 }
             ) {
-                if (cookiesPresent) {
+                GradientButton(
+                    text = "Sign in with browser",
+                    icon = painterResource(R.drawable.ic_cookie),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    onClick = onOpenCookieBrowser
+                )
+                Text(
+                    "Opens a built-in browser: log in to the site (or pass its age check) " +
+                        "and tap Done - cookies are imported automatically, Seal-style. " +
+                        "No cookies.txt export needed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkLow
+                )
+                if (cookiesPresent || cookieStats != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
@@ -301,7 +334,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                         )
                     }
                     GradientButton(
-                        text = "Replace cookies file",
+                        text = "Import cookies.txt instead",
                         icon = painterResource(R.drawable.ic_paste),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -324,27 +357,9 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                             CookieStore.clear(context)
                             Settings.updateCookiesEnabled(false)
                             cookiesPresent = false
+                            cookieStats = null
                             cookiesMessage = null
                         }
-                    )
-                } else {
-                    GradientButton(
-                        text = "Import cookies.txt",
-                        icon = painterResource(R.drawable.ic_paste),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp),
-                        onClick = {
-                            cookiePicker.launch(
-                                arrayOf("text/plain", "application/octet-stream", "*/*")
-                            )
-                        }
-                    )
-                    Text(
-                        "How to: log in to the site in your browser, export cookies.txt with a " +
-                            "cookie-export extension, then pick the file here.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = InkLow
                     )
                 }
                 cookiesMessage?.let {

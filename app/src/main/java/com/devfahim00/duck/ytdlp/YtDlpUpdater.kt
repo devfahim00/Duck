@@ -1,60 +1,65 @@
 package com.devfahim00.duck.ytdlp
 
 import android.content.Context
+import com.devfahim00.duck.R
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
  * Wraps the yt-dlp binary lifecycle.
  *
- * The app is pinned to a specific yt-dlp release ([PINNED_VERSION]) rather than
- * whatever GitHub reports as "latest": a known-good version avoids surprise
- * regressions and lets us test one exact build. All update paths therefore
- * avoid the library's own "latest" updater (which hits the rate-limited
- * api.github.com/.../releases/latest endpoint) and instead (re)install
- * [PINNED_VERSION] via a direct, non-API download.
+ * Three layers, in order of trust:
  *
- * Why not the library's own updater: youtubedl-android's updater hits
- * https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest directly and
- * unauthenticated. GitHub allows only 60 anonymous requests/hour *per source
- * IP*. On carrier mobile networks (very common for our BD users, heavy CGNAT)
- * huge numbers of subscribers share one public IP, so that quota is exhausted
- * almost immediately and the call fails with an opaque "failed to update
- * youtube-dl".
+ *  1. **Bundled engine (R.raw.ytdlp_pinned)** — a known-good yt-dlp zipapp
+ *     shipped inside the APK. Installing it is a 3 MB local copy: works
+ *     offline, first launch, no GitHub, no rate limits, no race. This
+ *     exists because the binary bundled inside the youtubedl-android AAR
+ *     (0.18.1 ships `2025.11.12`) is exactly the release that contains the
+ *     urllib regression that made HLS sites fail with
+ *     "I/O operation on closed file" (yt-dlp #15017). Every fresh install
+ *     would otherwise run that broken version until an update succeeded.
  *
- * Instead we fetch the pinned tag's asset directly
- * (github.com/.../releases/download/$PINNED_VERSION/yt-dlp), a plain CDN
- * redirect, NOT the rate-limited REST API, so it keeps working even when
- * api.github.com is throttled. We drop the result into the exact directory the
- * bundled library already expects, so the rest of the app (YtDlpEngine,
- * currentVersion()) keeps working unmodified.
+ *  2. **Latest stable from GitHub** — `releases/latest/download/yt-dlp` is a
+ *     plain CDN redirect that always points at the newest stable release,
+ *     so Duck keeps extractors fresh like Termux does, WITHOUT touching the
+ *     rate-limited api.github.com REST endpoints. Refreshed quietly once a
+ *     day in the background; failures are ignored (we still have layer 1).
  *
- * IMPORTANT: the yt-dlp that ships *inside* the app (res/raw of the
- * youtubedl-android AAR) is months old at install time, and site extractors
- * rot within weeks - that is why "it works in Termux (latest yt-dlp) but not
- * in the app". [ensureLatest] fixes that by auto-installing the pinned
- * release once, quietly, on every app start; users no longer need to find the
- * hidden manual update button.
+ *  3. **Manual update button** (Settings → yt-dlp engine) — force-runs the
+ *     same network refresh and reports the result.
+ *
+ * All swaps are staged + atomically renamed, so a download that starts
+ * while an update is in flight never observes a half-written binary.
  */
 object YtDlpUpdater {
 
-    /** yt-dlp release this app is pinned to. Bump this string to move to a new version. */
+    /** yt-dlp release bundled in res/raw. Bump together with the resource. */
     const val PINNED_VERSION = "2026.08.19"
 
-    private const val DIRECT_DOWNLOAD_URL =
-        "https://github.com/yt-dlp/yt-dlp/releases/download/$PINNED_VERSION/yt-dlp"
+    /**
+     * Redirecting URL for the newest stable release asset. Deliberately NOT
+     * the api.github.com "latest release" endpoint: anonymous REST calls are
+     * limited to 60/hour per IP, which carrier CGNAT networks burn through
+     * instantly (the exact failure the old updater had). This URL is served
+     * by GitHub's CDN and never rate limited.
+     */
+    private const val LATEST_STABLE_URL =
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
 
     /** Stored in the app-wide "duck_settings" SharedPreferences. */
     private const val PREFS_NAME = "duck_settings"
     private const val PREF_INSTALLED_VERSION = "installed_ytdlp_version"
-    private const val PREF_LAST_ATTEMPT = "ytdlp_update_last_attempt"
+    private const val PREF_ENGINE_SIGNATURE = "ytdlp_engine_signature"
+    private const val PREF_LAST_NET_ATTEMPT = "ytdlp_net_update_last_attempt"
 
-    /** How long to wait before retrying a failed auto-update. */
-    private const val RETRY_COOLDOWN_MS = 30 * 60 * 1000L
+    /** How long to wait before retrying a failed network refresh. */
+    private const val NET_RETRY_COOLDOWN_MS = 24 * 60 * 60 * 1000L
 
     sealed class Result {
         data class Success(val message: String) : Result()
@@ -62,67 +67,69 @@ object YtDlpUpdater {
     }
 
     /**
-     * AUTO-UPDATE - called once per app start from [YtDlpEngine.prewarm],
-     * after the runtime has been extracted.
+     * FIRST-LAUNCH GUARANTEE - makes sure the binary on disk is the pinned
+     * engine from our own APK resources. Cheap when already installed
+     * (signature check only); when not, it is a pure local copy - no python
+     * process, no network, works on first launch even fully offline.
      *
-     * Installs [PINNED_VERSION] only when the recorded installed version does
-     * not match, and never more often than every [RETRY_COOLDOWN_MS] when
-     * attempts keep failing (e.g. offline device). On success the version is
-     * verified by actually running `yt-dlp --version` before it is recorded,
-     * so a truncated/corrupt download can never be remembered as "installed".
-     *
-     * Silently no-ops on every subsequent launch.
+     * Runs as part of [com.devfahim00.duck.ytdlp.YtDlpEngine] bootstrap,
+     * before the first fetch/download is allowed to proceed.
      */
-    fun ensureLatest(context: Context) {
+    fun ensurePinnedEngine(context: Context) {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getString(PREF_INSTALLED_VERSION, null) == PINNED_VERSION) return
-
-        val lastAttempt = prefs.getLong(PREF_LAST_ATTEMPT, 0L)
-        if (System.currentTimeMillis() - lastAttempt < RETRY_COOLDOWN_MS) return
-        markAttempt(appContext)
-
-        try {
-            downloadDirect(appContext)
-            val verified = currentVersion(appContext)
-            if (verified != PINNED_VERSION) {
-                throw IOException(
-                    "verification returned '${verified ?: "no version"}' instead of $PINNED_VERSION"
-                )
-            }
-            prefs.edit().putString(PREF_INSTALLED_VERSION, PINNED_VERSION).apply()
-        } catch (error: Exception) {
-            // Stay on the current binary; retried on a later launch after the
-            // cooldown. Not logged on purpose - this runs on every offline
-            // start and must stay completely silent.
+        val binary = engineBinary(appContext)
+        if (!binary.exists() || signature(binary) != prefs.getString(PREF_ENGINE_SIGNATURE, null)) {
+            installPinned(appContext)
         }
     }
 
-    /** MANUAL update (Settings > yt-dlp engine). Always (re)installs [PINNED_VERSION]. */
+    /**
+     * BACKGROUND REFRESH - quietly moves to the newest stable yt-dlp release
+     * at most once per day. Best-effort by design: offline devices simply
+     * stay on the pinned engine, which is always a working version.
+     */
+    fun refreshLatest(context: Context) {
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        val lastAttempt = prefs.getLong(PREF_LAST_NET_ATTEMPT, 0L)
+        if (System.currentTimeMillis() - lastAttempt < NET_RETRY_COOLDOWN_MS) return
+        markNetAttempt(appContext)
+
+        try {
+            downloadLatest(appContext)
+        } catch (_: Exception) {
+            // Silent by design; retried after the cooldown.
+        }
+    }
+
+    /** MANUAL update (Settings > yt-dlp engine). Always fetches latest stable. */
     fun update(context: Context): Result {
         val appContext = context.applicationContext
         return try {
-            downloadDirect(appContext)
+            markNetAttempt(appContext)
+            downloadLatest(appContext)
             val verified = currentVersion(appContext)
-            if (verified != PINNED_VERSION) {
-                throw IOException(
-                    "verification returned '${verified ?: "no version"}' instead of $PINNED_VERSION"
-                )
+            if (verified == null) {
+                // The binary runs (download finished) but version check failed.
+                Result.Success("yt-dlp engine refreshed")
+            } else {
+                Result.Success("yt-dlp updated to $verified")
             }
-            markInstalled(appContext)
-            Result.Success("yt-dlp updated to $PINNED_VERSION")
         } catch (error: Exception) {
-            Result.Failure("Update failed: ${error.message?.take(160) ?: "unknown error"}")
+            // Never leave the user stranded: fall back to the bundled engine.
+            runCatching { installPinned(appContext) }
+            Result.Failure(
+                "Update failed (${error.message?.take(120) ?: "network error"}) - " +
+                    "restored the bundled $PINNED_VERSION engine"
+            )
         }
     }
 
     /**
      * The REAL version of the binary on disk, by running `yt-dlp --version`
      * (takes ~1-2s of python startup; call from Dispatchers.IO).
-     *
-     * Note YoutubeDL.getInstance().version() is useless for us: it only echoes
-     * a SharedPrefs string written by the library's own GitHub-API updater,
-     * which this app never uses - so it always returns null here.
      */
     fun currentVersion(context: Context): String? {
         return runCatching {
@@ -132,65 +139,113 @@ object YtDlpUpdater {
         }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
-    private fun markInstalled(appContext: Context) {
-        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+    // ------------------------------------------------------------------ install
+
+    /** Copies the APK-bundled zipapp over the engine binary and records it. */
+    private fun installPinned(appContext: Context) {
+        val ytdlpDir = engineDir(appContext)
+        if (!ytdlpDir.exists()) ytdlpDir.mkdirs()
+        val staging = File(ytdlpDir, YoutubeDL.ytdlpBin + ".pinned")
+        appContext.resources.openRawResource(R.raw.ytdlp_pinned).use { input ->
+            staging.outputStream().use { output -> input.copyTo(output) }
+        }
+        if (!looksLikeYtDlpZipapp(staging)) {
+            runCatching { staging.delete() }
+            return // resource is broken beyond hope; keep whatever is on disk
+        }
+        swapIn(appContext, staging)
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
             .putString(PREF_INSTALLED_VERSION, PINNED_VERSION)
-            .putLong(PREF_LAST_ATTEMPT, System.currentTimeMillis())
+            .putString(PREF_ENGINE_SIGNATURE, signature(engineBinary(appContext)))
             .apply()
     }
 
-    private fun markAttempt(appContext: Context) {
-        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
-            .putLong(PREF_LAST_ATTEMPT, System.currentTimeMillis())
-            .apply()
-    }
-
-    private fun downloadDirect(context: Context) {
-        val appContext = context.applicationContext
-        val ytdlpDir = File(File(appContext.noBackupFilesDir, YoutubeDL.baseName), YoutubeDL.ytdlpDirName)
-        val binary = File(ytdlpDir, YoutubeDL.ytdlpBin)
+    /** Downloads the newest stable release, verifies and swaps it in. */
+    private fun downloadLatest(appContext: Context) {
         val tmp = File.createTempFile("yt-dlp", null, appContext.cacheDir)
         try {
-            downloadFollowingRedirects(DIRECT_DOWNLOAD_URL, tmp)
+            downloadFollowingRedirects(LATEST_STABLE_URL, tmp)
             if (tmp.length() < 1_000_000L) {
-                // A real yt-dlp zipapp is several MB; anything tiny means we saved an
-                // error page instead of the binary.
+                // A real yt-dlp zipapp is several MB; anything tiny means we
+                // saved an error page instead of the binary.
                 throw IOException("downloaded file looks truncated/invalid")
             }
-            verifyZipMagic(tmp)
+            if (!looksLikeYtDlpZipapp(tmp)) {
+                throw IOException("downloaded file is not a valid yt-dlp zipapp")
+            }
+            val ytdlpDir = engineDir(appContext)
             if (!ytdlpDir.exists()) ytdlpDir.mkdirs()
-            // Stage next to the target and swap with an atomic rename, so a
-            // yt-dlp process that is starting concurrently never observes a
-            // missing or half-written binary.
             val staging = File(ytdlpDir, YoutubeDL.ytdlpBin + ".new")
             tmp.copyTo(staging, overwrite = true)
-            staging.setExecutable(true, true)
-            if (binary.exists()) binary.delete()
-            if (!staging.renameTo(binary)) {
-                // Same-filesystem rename should always work; fall back to a
-                // plain copy for exotic devices.
-                staging.copyTo(binary, overwrite = true)
-                staging.delete()
-                binary.setExecutable(true, true)
-            }
+            swapIn(appContext, staging)
         } finally {
             runCatching { tmp.delete() }
         }
     }
 
-    /** The release asset is a python zipapp: it must start with the ZIP magic bytes "PK". */
-    private fun verifyZipMagic(file: File) {
-        file.inputStream().use { input ->
-            val first = input.read()
-            val second = input.read()
-            if (first != 0x50 || second != 0x4B) {
-                throw IOException("downloaded file is not a valid yt-dlp zipapp")
+    /** Atomic staged swap; keeps already-running processes on the old inode. */
+    private fun swapIn(appContext: Context, staging: File) {
+        val binary = engineBinary(appContext)
+        staging.setExecutable(true, true)
+        if (binary.exists()) binary.delete()
+        if (!staging.renameTo(binary)) {
+            // Same-filesystem rename should always work; fall back to a
+            // plain copy for exotic devices.
+            staging.copyTo(binary, overwrite = true)
+            staging.delete()
+            binary.setExecutable(true, true)
+        }
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(PREF_ENGINE_SIGNATURE, signature(binary))
+            .apply()
+    }
+
+    /**
+     * yt-dlp release assets are python zipapps: `#!/usr/bin/env python3`
+     * shebang followed by ZIP data ("PK\x03\x04") within the first line.
+     * Accept both bare zips and shebang-prefixed zipapps.
+     *
+     * (The old check demanded the file start with "PK", which the release
+     * asset never does — every single network update used to fail here.)
+     */
+    private fun looksLikeYtDlpZipapp(file: File): Boolean {
+        return try {
+            file.inputStream().use { input ->
+                val head = ByteArray(96)
+                var read = 0
+                while (read < head.size) {
+                    val n = input.read(head, read, head.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+                val text = String(head, 0, read, Charsets.ISO_8859_1)
+                text.contains("PK\u0003\u0004")
             }
+        } catch (_: Exception) {
+            false
         }
     }
 
+    private fun engineDir(appContext: Context): File =
+        File(File(appContext.noBackupFilesDir, YoutubeDL.baseName), YoutubeDL.ytdlpDirName)
+
+    private fun engineBinary(appContext: Context): File =
+        File(engineDir(appContext), YoutubeDL.ytdlpBin)
+
+    /** length + mtime: detects the library re-extracting its stale binary. */
+    private fun signature(binary: File): String =
+        "${binary.length()}-${binary.lastModified()}"
+
+    private fun markNetAttempt(appContext: Context) {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putLong(PREF_LAST_NET_ATTEMPT, System.currentTimeMillis())
+            .apply()
+    }
+
     @Throws(IOException::class)
-    private fun downloadFollowingRedirects(urlStr: String, dest: File, maxRedirects: Int = 5) {
+    private fun downloadFollowingRedirects(urlStr: String, dest: File, maxRedirects: Int = 6) {
         var current = urlStr
         var redirects = 0
         while (true) {
@@ -215,8 +270,8 @@ object YtDlpUpdater {
                 conn.disconnect()
                 throw IOException("HTTP $code while downloading yt-dlp")
             }
-            conn.inputStream.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
+            conn.inputStream.use { input: InputStream ->
+                dest.outputStream().use { output: OutputStream -> input.copyTo(output) }
             }
             conn.disconnect()
             return

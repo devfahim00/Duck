@@ -22,8 +22,9 @@ import java.io.File
 /**
  * Thin wrapper around youtubedl-android.
  * Takes care of one-time initialization (python/yt-dlp/ffmpeg/aria2c extraction),
- * keeps the yt-dlp binary current (see [YtDlpUpdater.ensureLatest]) and builds
- * the yt-dlp commands used by the app.
+ * installs the pinned yt-dlp engine from APK resources (see
+ * [YtDlpUpdater.ensurePinnedEngine]) and builds the yt-dlp commands used by
+ * the app.
  */
 object YtDlpEngine {
 
@@ -34,20 +35,28 @@ object YtDlpEngine {
     private var initialized = false
 
     /**
-     * One-shot background job that (a) extracts the runtime and (b) brings the
-     * yt-dlp binary up to [YtDlpUpdater.PINNED_VERSION]. Fetches and downloads
-     * wait for it (bounded) via [awaitReady] so they run with a *current*
-     * yt-dlp instead of the months-old one bundled inside the app.
+     * One-shot background job that (a) extracts the runtime, (b) swaps the
+     * stale binary bundled in the AAR for the pinned engine shipped in
+     * the APK (local copy, works offline) and (c) refreshes to the newest
+     * stable yt-dlp from the network. (a)+(b) are what fetches and
+     * downloads wait for via [awaitReady]; (c) is best-effort background
+     * work that the NEXT download picks up.
      */
     @Volatile
     private var bootstrapJob: Job? = null
 
-    /** Kick off engine init + auto-update in the background right after app start. */
+    /** Kick off engine init + pinned engine install + network refresh. */
     fun prewarm(context: Context) {
         if (bootstrapJob != null) return
         bootstrapJob = scope.launch {
             runCatching { awaitInitialized(context) }
-            runCatching { YtDlpUpdater.ensureLatest(context) }
+            runCatching { YtDlpUpdater.ensurePinnedEngine(context) }
+        }
+        // Network refresh only after the ready part is done - the running
+        // python env is extracted and the pinned binary is in place.
+        scope.launch {
+            bootstrapJob?.join()
+            runCatching { YtDlpUpdater.refreshLatest(context) }
         }
     }
 
@@ -70,18 +79,19 @@ object YtDlpEngine {
     }
 
     /**
-     * Suspends until the engine is ready AND the first-launch auto-update has
-     * finished (or 60s passed). Waiting is strictly better than proceeding:
-     * the stale bundled yt-dlp fails on a large share of sites (the whole
-     * "works in Termux but not in the app" problem), so a fetch that jumps the
-     * gun would just produce a guaranteed error for the user.
+     * Suspends until the engine is ready: runtime extracted AND the pinned
+     * (known-good) yt-dlp binary installed. Both steps are local-only, so
+     * this normally completes in a few seconds even on a fresh, offline
+     * install - the stale AAR binary (the one with the
+     * "I/O operation on closed file" urllib regression) is never used.
      */
     suspend fun awaitReady(context: Context) {
-        awaitInitialized(context)
         val job = bootstrapJob
         if (job != null && !job.isCompleted) {
             withTimeoutOrNull(60_000L) { job.join() }
         }
+        awaitInitialized(context)
+        runCatching { YtDlpUpdater.ensurePinnedEngine(context) }
     }
 
     /**
@@ -122,6 +132,7 @@ object YtDlpEngine {
         val request = YoutubeDLRequest(url)
         request.addOption("--no-playlist")
         request.addOption("--newline")
+        request.addOption("--no-mtime")
         // CRITICAL: --print (below) implies --quiet, which implies --no-progress in
         // yt-dlp -> NO progress lines on stdout at all (progress UI stays at 0%
         // until the download finishes). --progress explicitly re-enables the
@@ -175,7 +186,11 @@ object YtDlpEngine {
      *     default.
      *  3. --cookies: for sites that only serve videos to logged-in browsers
      *     (Instagram, Facebook, age-restricted YouTube...). Same feature as
-     *     Seal's cookie setting; imported in Settings > Cookies.
+     *     Seal's cookie setting; imported via the built-in browser (Settings
+     *     > Cookies > Sign in with browser) or a cookies.txt file.
+     *  4. --add-header User-Agent: when cookies were harvested from the
+     *     built-in browser, send them with the same user-agent the browser
+     *     used (exactly what Seal does) - many sites tie sessions to the UA.
      */
     private fun applySharedOptions(context: Context, request: YoutubeDLRequest) {
         request.addOption("--no-check-certificate")
@@ -190,6 +205,9 @@ object YtDlpEngine {
             val cookiesFile = CookieStore.file(context)
             if (cookiesFile.exists()) {
                 request.addOption("--cookies", cookiesFile.absolutePath)
+                CookieStore.userAgent(context)?.takeIf { it.isNotBlank() }?.let { ua ->
+                    request.addOption("--add-header", "User-Agent:$ua")
+                }
             }
         }
     }

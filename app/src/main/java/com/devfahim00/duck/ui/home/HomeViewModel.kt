@@ -88,14 +88,16 @@ class HomeViewModel(
             msg.contains("not a bot", ignoreCase = true) ||
                 msg.contains("Sign in to confirm", ignoreCase = true) ->
                 "This site wants to verify you are human (common on mobile networks). " +
-                    "Try again, or import your browser cookies in Settings > Cookies."
+                    "Try again, or sign in with the built-in browser in Settings > Cookies."
             msg.contains("cookie", ignoreCase = true) ->
-                "This site needs login cookies. Export cookies.txt from your browser and " +
-                    "import it in Settings > Cookies (same as the Seal app)."
+                "This site needs login cookies. Open Settings > Cookies > Sign in with " +
+                    "browser, log in to the site there, and Duck imports the cookies " +
+                    "automatically (same as the Seal app)."
             msg.contains("age-restricted", ignoreCase = true) ||
                 msg.contains("login required", ignoreCase = true) ||
                 msg.contains("requested content is not available", ignoreCase = true) ->
-                "This video needs an account. Import cookies in Settings > Cookies to download it."
+                "This video needs an account. Use Settings > Cookies > Sign in with " +
+                    "browser to log in and unlock it."
             else -> msg.take(300)
         }
     }

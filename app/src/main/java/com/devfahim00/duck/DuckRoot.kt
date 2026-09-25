@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.devfahim00.duck.downloads.DownloadManager
 import com.devfahim00.duck.downloads.DownloadStatus
+import com.devfahim00.duck.ui.browser.CookieBrowserScreen
 import com.devfahim00.duck.ui.common.DuckLogo
 import com.devfahim00.duck.ui.common.GlassCard
 import com.devfahim00.duck.ui.common.GradientButton
@@ -90,6 +91,11 @@ fun DuckRoot(
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    // Bumped every time the built-in cookie browser imports cookies, so the
+    // settings sheet refreshes its cookies section when it becomes visible
+    // again.
+    var cookieImportTick by remember { mutableIntStateOf(0) }
+    var showCookieBrowser by remember { mutableStateOf(false) }
     // "Maybe later" only dismisses the gate for this app session - Duck checks
     // again the next time the app is opened, per the requirement that storage
     // access is verified fresh on every launch.
@@ -186,7 +192,20 @@ fun DuckRoot(
     }
 
     if (showSettings) {
-        SettingsSheet(onDismiss = { showSettings = false })
+        SettingsSheet(
+            onDismiss = { showSettings = false },
+            onOpenCookieBrowser = { showCookieBrowser = true },
+            cookieImportTick = cookieImportTick
+        )
+    }
+
+    if (showCookieBrowser) {
+        CookieBrowserScreen(
+            onClose = { imported ->
+                if (imported > 0) cookieImportTick++
+                showCookieBrowser = false
+            }
+        )
     }
 
     updateRelease?.let { release ->

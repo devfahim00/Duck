@@ -45,7 +45,10 @@ object FormatOptions {
                 options += FormatOption(
                     label = qualityLabel(h, fps),
                     detail = "video + audio",
-                    formatSpec = "bv*[height<=$h]+ba/b[height<=$h]",
+                    // Prefer a single combined stream when one exists at this
+                    // height (HLS sites like xnxx report codec-less mp4 entries);
+                    // otherwise fall back to separate video+audio streams.
+                    formatSpec = "b[height<=$h]/bv*[height<=$h]+ba/b[height<=$h]",
                     needsMerge = true,
                     estBytes = estimateBytes(formats, h)
                 )
@@ -91,8 +94,14 @@ object FormatOptions {
         return if (total > 0) total else null
     }
 
+    /**
+     * A format counts as a video stream when it either declares a video
+     * codec or reports a resolution. HLS entries on sites like xnxx come
+     * with `vcodec: unknown` but a real `height` - without this they would
+     * be invisible to the quality picker.
+     */
     private fun hasVideoStream(f: VideoFormat): Boolean =
-        !f.vcodec.isNullOrBlank() && f.vcodec != "none"
+        f.height > 0 || (!f.vcodec.isNullOrBlank() && f.vcodec != "none")
 
     private fun hasAudioStream(f: VideoFormat): Boolean =
         !f.acodec.isNullOrBlank() && f.acodec != "none"
