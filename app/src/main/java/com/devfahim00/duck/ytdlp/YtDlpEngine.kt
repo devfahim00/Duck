@@ -106,7 +106,7 @@ object YtDlpEngine {
             request.addOption("--socket-timeout", "20")
             request.addOption("--retries", "3")
             request.addOption("--extractor-retries", "2")
-            applySharedOptions(context, request)
+            applySharedOptions(context, request, url)
             val info = YoutubeDL.getInstance().getInfo(request)
             info to FormatOptions.build(info)
         }
@@ -145,7 +145,7 @@ object YtDlpEngine {
         request.addOption("--print", "after_move:filepath")
         request.addOption("--socket-timeout", "20")
         request.addOption("--retries", "3")
-        applySharedOptions(context, request)
+        applySharedOptions(context, request, url)
 
         if (needsMerge && !audioOnly) {
             request.addOption("--merge-output-format", "mkv")
@@ -201,12 +201,24 @@ object YtDlpEngine {
      *     request), so sites that 403 yt-dlp's bare default UA work here.
      *     When cookies were harvested from the built-in browser, the exact
      *     browser UA is sent instead - sessions are often tied to it.
-     *  4. --cookies: for sites that only serve videos to logged-in browsers
+     *  4. --referer: defaults to the video page's own origin whenever the
+     *     extractor doesn't already set one. A lot of the "works in Seal /
+     *     Termux but 403s in Duck" reports are hotlink-protected CDNs that
+     *     check Referer + User-Agent together and reject anything with no
+     *     Referer at all (which is exactly what a bare yt-dlp request sends
+     *     - a real browser always sends the page it's on). yt-dlp only
+     *     falls back to this when the extractor hasn't already picked its
+     *     own Referer, so it never overrides a value a site-specific
+     *     extractor already needs.
+     *  5. --add-header Accept-Language: another header every real browser
+     *     sends on every request; some of the same WAFs that check UA also
+     *     flag requests missing it.
+     *  6. --cookies: for sites that only serve videos to logged-in browsers
      *     (Instagram, Facebook, age-restricted YouTube...). Same feature as
      *     Seal's cookie setting; imported via the built-in browser (Settings
-     *     > Cookies > Sign in with browser) or a cookies.txt file.
+     *     > Cookies & Sign-in > Sign in with browser) or a cookies.txt file.
      */
-    private fun applySharedOptions(context: Context, request: YoutubeDLRequest) {
+    private fun applySharedOptions(context: Context, request: YoutubeDLRequest, url: String) {
         request.addOption("--no-check-certificate")
 
         runCatching {
@@ -221,6 +233,11 @@ object YtDlpEngine {
             null
         }
         request.addOption("--add-header", "User-Agent:${browserUserAgent ?: DEFAULT_USER_AGENT}")
+        request.addOption("--add-header", "Accept-Language:en-US,en;q=0.9")
+
+        deriveOrigin(url)?.let { origin ->
+            request.addOption("--referer", origin)
+        }
 
         if (Settings.cookiesEnabled) {
             val cookiesFile = CookieStore.file(context)
@@ -229,4 +246,12 @@ object YtDlpEngine {
             }
         }
     }
+
+    /** "https://example.com/watch?v=123" -> "https://example.com/" */
+    private fun deriveOrigin(url: String): String? = runCatching {
+        val uri = java.net.URI(url)
+        val scheme = uri.scheme?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        "$scheme://$host/"
+    }.getOrNull()
 }

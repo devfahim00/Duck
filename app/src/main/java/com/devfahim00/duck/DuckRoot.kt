@@ -69,7 +69,7 @@ import com.devfahim00.duck.ui.common.GradientButton
 import com.devfahim00.duck.ui.downloads.DownloadsScreen
 import com.devfahim00.duck.ui.home.HomeScreen
 import com.devfahim00.duck.ui.home.HomeViewModel
-import com.devfahim00.duck.ui.settings.SettingsSheet
+import com.devfahim00.duck.ui.settings.SettingsScreen
 import com.devfahim00.duck.ui.theme.DuckGradient
 import com.devfahim00.duck.ui.theme.InkHigh
 import com.devfahim00.duck.ui.theme.InkMedium
@@ -194,7 +194,7 @@ fun DuckRoot(
     }
 
     if (showSettings) {
-        SettingsSheet(
+        SettingsScreen(
             onDismiss = { showSettings = false },
             onOpenCookieBrowser = {
                 showSettings = false
