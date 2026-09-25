@@ -28,6 +28,16 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # Chaquopy's chaquopy{} block (pip install, bytecode compilation) runs
+      # ON THE BUILD MACHINE at Gradle time and needs a real Python whose
+      # major.minor matches the app's chaquopy.defaultConfig.version (3.13).
+      # It searches PATH for `python3.13` first - see buildPython in
+      # https://chaquo.com/chaquopy/doc/current/android.html
+      - name: Set up Python 3.13 (for Chaquopy buildPython)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Decode signing keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"

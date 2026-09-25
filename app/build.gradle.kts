@@ -25,22 +25,6 @@ android {
             abiFilters += listOf("arm64-v8a")
         }
 
-        // STAGE 1 of the curl_cffi migration (see ChaquopyDiagnostics.kt).
-        // Not wired into the real engine yet - this only proves Chaquopy can
-        // resolve + package a real CPython 3.13 + yt-dlp + curl_cffi for
-        // arm64-v8a. Python 3.13 chosen because that's the version curl_cffi
-        // actually publishes an "android_24_arm64_v8a" wheel for on PyPI
-        // (verified by hand: `pip download curl_cffi --platform
-        // android_24_arm64_v8a --python-version 3.13 --abi cp313
-        // --only-binary=:all:` resolves curl_cffi-0.16.3-cp313-cp313-
-        // android_24_arm64_v8a.whl, MIT licensed, Requires-Python >=3.10).
-        python {
-            version = "3.13"
-            pip {
-                install("yt-dlp")
-                install("curl_cffi")
-            }
-        }
     }
 
     signingConfigs {
@@ -91,6 +75,27 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+// STAGE 1 of the curl_cffi migration (see ChaquopyDiagnostics.kt). Not wired
+// into the real engine yet - this only proves Chaquopy can resolve + package
+// a real CPython 3.13 + yt-dlp + curl_cffi for arm64-v8a. Python 3.13 chosen
+// because that's the version curl_cffi actually publishes an
+// "android_24_arm64_v8a" wheel for on PyPI (verified by hand: `pip download
+// curl_cffi --platform android_24_arm64_v8a --python-version 3.13 --abi
+// cp313 --only-binary=:all:` resolves
+// curl_cffi-0.16.3-cp313-cp313-android_24_arm64_v8a.whl, MIT licensed,
+// Requires-Python >=3.10). This is a SEPARATE top-level block, not
+// android.defaultConfig.python{} - that DSL is Groovy-only and deprecated
+// since Chaquopy 15; .kts files must use this chaquopy{} block instead.
+chaquopy {
+    defaultConfig {
+        version = "3.13"
+        pip {
+            install("yt-dlp")
+            install("curl_cffi")
         }
     }
 }
