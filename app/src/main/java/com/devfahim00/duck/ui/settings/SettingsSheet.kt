@@ -42,6 +42,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.devfahim00.duck.R
 import com.devfahim00.duck.ui.common.GlassCard
 import com.devfahim00.duck.ui.common.GradientButton
@@ -67,6 +68,7 @@ import kotlinx.coroutines.withContext
 fun SettingsSheet(
     onDismiss: () -> Unit,
     onOpenCookieBrowser: () -> Unit = {},
+    onOpenCookieManager: () -> Unit = {},
     cookieImportTick: Int = 0
 ) {
     val context = LocalContext.current
@@ -162,6 +164,11 @@ fun SettingsSheet(
                 color = InkHigh,
                 modifier = Modifier.padding(bottom = 2.dp)
             )
+
+            // Grouped into labeled sections (Downloads / Cookies / Engine /
+            // About) so the sheet reads as organized categories instead of
+            // one long stack of identical-looking cards.
+            GroupLabel("DOWNLOADS")
 
             // ----- Storage -----
             SectionCard(
@@ -274,6 +281,8 @@ fun SettingsSheet(
                 }
             }
 
+            GroupLabel("COOKIES & SIGN-IN")
+
             // ----- Cookies -----
             SectionCard(
                 iconRes = R.drawable.ic_cookie,
@@ -346,7 +355,17 @@ fun SettingsSheet(
                         }
                     )
                     GradientButton(
-                        text = "Remove cookies",
+                        text = "Manage cookies",
+                        icon = painterResource(R.drawable.ic_cookie),
+                        gradient = SpeedGradient,
+                        contentColor = Color(0xFF003733),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        onClick = onOpenCookieManager
+                    )
+                    GradientButton(
+                        text = "Remove all cookies",
                         icon = painterResource(R.drawable.ic_delete),
                         gradient = DangerGradient,
                         contentColor = Color(0xFF2B0A0A),
@@ -370,6 +389,8 @@ fun SettingsSheet(
                     )
                 }
             }
+
+            GroupLabel("ENGINE & UPDATES")
 
             // ----- Engine -----
             SectionCard(
@@ -441,6 +462,8 @@ fun SettingsSheet(
                 }
             }
 
+            GroupLabel("ABOUT")
+
             // ----- Telegram -----
             SectionCard(
                 iconRes = R.drawable.ic_link,
@@ -460,6 +483,18 @@ fun SettingsSheet(
             Spacer(Modifier.height(26.dp))
         }
     }
+}
+
+@Composable
+private fun GroupLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = InkLow,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.2.sp,
+        modifier = Modifier.padding(top = 10.dp, start = 2.dp, bottom = 2.dp)
+    )
 }
 
 @Composable

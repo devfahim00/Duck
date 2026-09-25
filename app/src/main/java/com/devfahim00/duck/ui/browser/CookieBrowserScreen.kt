@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,11 +41,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import com.devfahim00.duck.R
@@ -54,6 +53,7 @@ import com.devfahim00.duck.ui.common.GradientButton
 import com.devfahim00.duck.ui.theme.InkHigh
 import com.devfahim00.duck.ui.theme.InkLow
 import com.devfahim00.duck.ui.theme.InkMedium
+import com.devfahim00.duck.ui.theme.SpeedGradient
 import com.devfahim00.duck.util.CookieStore
 import com.devfahim00.duck.util.Settings
 import java.net.URI
@@ -111,20 +111,30 @@ fun CookieBrowserScreen(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+        // Distinct "browser mode" surface tone (surfaceContainer, not the
+        // surfaceContainerLow every Home card sits on) plus the teal header
+        // below - together they make this screen read as a different mode
+        // instead of a second, confusingly similar copy of Home.
+        color = MaterialTheme.colorScheme.surfaceContainer
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .imePadding()
         ) {
+            BrowserModeHeader(
+                icon = R.drawable.ic_cookie,
+                title = "Sign in with browser",
+                subtitle = pageTitle.ifBlank { "Log in, then tap Done" },
+                onClose = { finishImport() }
+            )
+
             // ---- URL bar + Go ----
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 OutlinedTextField(
                     value = urlInput,
@@ -168,29 +178,19 @@ fun CookieBrowserScreen(
                 }
             }
 
-            // ---- Page title + Done button ----
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // ---- Done button (page title now lives in the header above) ----
+            GradientButton(
+                text = "Done - import cookies",
+                icon = painterResource(R.drawable.ic_check_circle),
+                gradient = SpeedGradient,
+                contentColor = Color(0xFF003733),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-            ) {
-                Text(
-                    pageTitle.ifBlank { "Sign in, then tap Done" },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = InkMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.size(12.dp))
-                GradientButton(
-                    text = "Done",
-                    icon = painterResource(R.drawable.ic_check_circle),
-                    modifier = Modifier.height(42.dp),
-                    onClick = { finishImport() }
-                )
-            }
+                    .height(46.dp),
+                onClick = { finishImport() }
+            )
+            Spacer(Modifier.height(4.dp))
 
             if (progress in 1..99) {
                 LinearProgressIndicator(

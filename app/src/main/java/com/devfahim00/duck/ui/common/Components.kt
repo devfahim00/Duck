@@ -124,14 +124,19 @@ fun GradientButton(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 15.dp)
+            // NOTE: buttons are placed with fixed heights as low as 42.dp
+            // (see CookieBrowserScreen's "Done" button). 15.dp vertical padding
+            // on both sides plus the 20.dp icon needs ~50.dp of content height,
+            // which got clipped by the RoundedCornerShape above - the icon and
+            // text visibly squished into the corners. 10.dp fits every caller.
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
         ) {
             if (icon != null) {
                 Icon(
                     painter = icon,
                     contentDescription = null,
                     tint = if (enabled) contentColor else InkMedium,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
             Text(

@@ -170,6 +170,74 @@ object CookieStore {
         }
     }
 
+    // ------------------------------------------------------------- per-site management
+
+    /** One cookie belonging to a single site, exposed to the Cookie Manager UI. */
+    data class CookieEntry(val name: String, val value: String)
+
+    /** All cookies for one domain, as shown in the Cookie Manager list. */
+    data class SiteCookies(val domain: String, val entries: List<CookieEntry>)
+
+    /** Every site currently holding cookies, grouped and sorted by domain. */
+    fun sites(context: Context): List<SiteCookies> {
+        val f = file(context)
+        if (!f.exists() || f.length() == 0L) return emptyList()
+        val lines = runCatching { parseCookieLines(f.readText()) }.getOrDefault(emptyList())
+        return lines.groupBy { it.domain }
+            .toSortedMap()
+            .map { (domain, group) -> SiteCookies(domain, group.map { CookieEntry(it.name, it.value) }) }
+    }
+
+    /**
+     * Netscape-format text for a single site's cookies only - what "Copy" and
+     * "Save" hand to the clipboard / file picker in the Cookie Manager, so a
+     * site's cookies can be moved around independently of the rest.
+     */
+    fun netscapeTextForSite(context: Context, domain: String): String? {
+        val f = file(context)
+        if (!f.exists()) return null
+        val lines = runCatching { parseCookieLines(f.readText()) }.getOrDefault(emptyList())
+            .filter { it.domain == domain }
+        if (lines.isEmpty()) return null
+        return NETSCAPE_HEADER.joinToString("\n") + lines.joinToString("\n") { it.toNetscapeLine() } + "\n"
+    }
+
+    /** Removes every cookie belonging to [domain] only; other sites are untouched. */
+    fun deleteSite(context: Context, domain: String) {
+        val f = file(context)
+        if (!f.exists()) return
+        val remaining = runCatching { parseCookieLines(f.readText()) }.getOrDefault(emptyList())
+            .filterNot { it.domain == domain }
+        if (remaining.isEmpty()) {
+            f.delete()
+            return
+        }
+        val body = remaining.sortedWith(compareBy({ it.domain }, { it.name }))
+            .joinToString("\n") { it.toNetscapeLine() }
+        f.writeText(NETSCAPE_HEADER.joinToString("\n") + body + "\n")
+    }
+
+    /**
+     * Replaces every cookie for [domain] with [entries] (name/value edits from
+     * the Cookie Manager screen). Cookies for every other domain are kept as-is.
+     */
+    fun updateSite(context: Context, domain: String, entries: List<CookieEntry>) {
+        val f = file(context)
+        val existing = if (f.exists()) {
+            runCatching { parseCookieLines(f.readText()) }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+        val expiry = System.currentTimeMillis() / 1000L + 365L * 24L * 3600L
+        val kept = existing.filterNot { it.domain == domain }
+        val updated = entries
+            .filter { it.name.isNotBlank() }
+            .map { CookieLine(domain = domain, name = it.name.trim(), value = it.value, expiry = expiry) }
+        val body = (kept + updated).sortedWith(compareBy({ it.domain }, { it.name }))
+            .joinToString("\n") { it.toNetscapeLine() }
+        file(context).writeText(NETSCAPE_HEADER.joinToString("\n") + body + "\n")
+    }
+
     fun clear(context: Context) {
         val appContext = context.applicationContext
         runCatching {

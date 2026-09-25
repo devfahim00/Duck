@@ -173,6 +173,19 @@ object YtDlpEngine {
     }
 
     /**
+     * Default browser User-Agent sent with every request, mirroring what
+     * Seal (JunkFood02/Seal, another youtubedl-android app) always does -
+     * its own debug logs show a Chrome UA on every single download, cookies
+     * or not. yt-dlp's bare default UA gets flagged as a bot by plenty of
+     * sites and killed with "Unable to download webpage: HTTP Error 403:
+     * Forbidden" before extraction even starts; a normal browser UA gets
+     * past that check on the same sites that work fine in Seal.
+     */
+    private const val DEFAULT_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/124.0.0.0 Mobile Safari/537.36"
+
+    /**
      * Options shared by every fetch/download request, mirroring what makes
      * Termux / Seal work on sites the old build failed on:
      *
@@ -184,13 +197,14 @@ object YtDlpEngine {
      *     solved YouTube player challenges = faster extraction and far fewer
      *     "confirm you're not a bot" walls; desktop/Termux yt-dlp caches by
      *     default.
-     *  3. --cookies: for sites that only serve videos to logged-in browsers
+     *  3. --add-header User-Agent: always sent (Seal does the same on every
+     *     request), so sites that 403 yt-dlp's bare default UA work here.
+     *     When cookies were harvested from the built-in browser, the exact
+     *     browser UA is sent instead - sessions are often tied to it.
+     *  4. --cookies: for sites that only serve videos to logged-in browsers
      *     (Instagram, Facebook, age-restricted YouTube...). Same feature as
      *     Seal's cookie setting; imported via the built-in browser (Settings
      *     > Cookies > Sign in with browser) or a cookies.txt file.
-     *  4. --add-header User-Agent: when cookies were harvested from the
-     *     built-in browser, send them with the same user-agent the browser
-     *     used (exactly what Seal does) - many sites tie sessions to the UA.
      */
     private fun applySharedOptions(context: Context, request: YoutubeDLRequest) {
         request.addOption("--no-check-certificate")
@@ -201,13 +215,17 @@ object YtDlpEngine {
             request.addOption("--cache-dir", cacheDir.absolutePath)
         }
 
+        val browserUserAgent = if (Settings.cookiesEnabled) {
+            CookieStore.userAgent(context)?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+        request.addOption("--add-header", "User-Agent:${browserUserAgent ?: DEFAULT_USER_AGENT}")
+
         if (Settings.cookiesEnabled) {
             val cookiesFile = CookieStore.file(context)
             if (cookiesFile.exists()) {
                 request.addOption("--cookies", cookiesFile.absolutePath)
-                CookieStore.userAgent(context)?.takeIf { it.isNotBlank() }?.let { ua ->
-                    request.addOption("--add-header", "User-Agent:$ua")
-                }
             }
         }
     }
