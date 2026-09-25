@@ -66,17 +66,19 @@ jobs:
           LOG="$RUNNER_TEMP/gradle_build.log"
           echo "----- last 250 lines of gradle output -----"
           tail -n 250 "$LOG" || true
-          # A --stacktrace build's LAST lines are internal Gradle call-stack
-          # noise, not the actual error - that's in the "FAILURE: Build
-          # failed" / "What went wrong" / "Caused by:" section further up.
-          # Grab from the first FAILURE marker onward instead of the tail.
-          START=$(grep -n "FAILURE: Build failed\|^\* What went wrong" "$LOG" | head -1 | cut -d: -f1)
-          if [ -n "$START" ]; then
-            RELEVANT=$(sed -n "${START},$((START+80))p" "$LOG")
-          else
-            # No FAILURE marker at all (e.g. it crashed before Gradle's own
-            # error reporting) - fall back to whatever looks like an error.
-            RELEVANT=$(grep -n -i "error\|exception\|caused by" "$LOG" | tail -n 60)
+          # Task-level failures (e.g. installReleasePythonRequirements running
+          # pip) print their real error BEFORE Gradle's own "FAILURE: Build
+          # failed" summary, so grab a window around whichever marker shows
+          # up first: a failing task line, a pip/Python error, or the
+          # summary itself. Wide net on purpose - dedup after.
+          RELEVANT=$(grep -n -i -E \
+            "Execution failed for task|installReleasePythonRequirements|ERROR: |error:|No matching distribution|Could not find a version|Command errored|Traceback \(most|ModuleNotFoundError|FAILURE: Build failed|^\* What went wrong" \
+            "$LOG" | cut -d: -f1 | while read -r n; do
+              sed -n "$((n>10?n-10:1)),$((n+25))p" "$LOG"
+              echo "---"
+            done | awk '!seen[$0]++' | head -n 200)
+          if [ -z "$RELEVANT" ]; then
+            RELEVANT=$(tail -n 100 "$LOG")
           fi
           echo "$RELEVANT" | while IFS= read -r line; do
             safe=$(printf '%s' "$line" | sed 's/%/%25/g')
