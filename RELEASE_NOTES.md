@@ -1,19 +1,31 @@
-# Duck v1.0.0
+# Duck v1.1.0
 
-The first official release. Duck is a yt-dlp powered video downloader for
-Android — paste a link, pick a quality, download at full speed.
+The "works everywhere" release: the engine now keeps itself current, and
+sites that need a login are unlocked with cookies.
 
-## What's new in v1.0.0
+## What's new in v1.1.0
 
-- **Automatic app updates** — Duck now checks GitHub Releases silently on
-  every launch and offers the new APK with a one-tap download when a newer
-  version is published.
-- **Manual update check** — a new *App updates* section in Settings with a
-  "Check for updates" button, so you can look for a new version any time.
-- **Telegram** — news, updates and support from the owner at
-  [@droxilen](https://t.me/droxilen), linked from Settings.
-- **Up to 32 download threads** — the connections-per-download setting now
-  goes up to 32 (4 / 8 / 16 / 32) for maximum speed on fast networks.
+- **Self-updating yt-dlp engine** — on every launch Duck silently brings its
+  yt-dlp binary up to the pinned release (`2026.08.19`) in the background.
+  Previously the engine only updated if you found the button in Settings, so
+  most installs were stuck on the months-old bundled build — the reason many
+  sites worked in Termux but not in Duck. Fetches and downloads now also wait
+  (up to 60s) for the first-launch update to finish, so links are analyzed
+  with a current engine from the very first tap.
+- **Cookies support (like Seal)** — import a Netscape `cookies.txt` in
+  Settings → *Cookies* and it is attached to every fetch and download. This
+  unlocks login-walled content: Instagram, Facebook, age-restricted YouTube,
+  "confirm you're not a bot" checks, and similar. Cookies can be toggled off
+  or removed at any time, and import errors explain exactly what went wrong.
+- **Fewer network failures** — requests now run with
+  `--no-check-certificate` (some sites/devices fail TLS verification), a real
+  yt-dlp cache directory (faster, more reliable YouTube extraction — same as
+  desktop/Termux behavior), more retries, and extractor retries.
+- **Friendlier errors** — when a site asks for cookies, a login, or bot
+  verification, the error card now points you straight to Settings → Cookies
+  instead of showing a raw yt-dlp message.
+- **Honest engine version** — Settings now runs `yt-dlp --version` for real
+  and always shows the true engine version.
 
 ## Features
 
@@ -30,8 +42,10 @@ Android — paste a link, pick a quality, download at full speed.
     downloader
 - **Multiple simultaneous downloads** — 1, 2 or 3 downloads at once.
 - **Share-to-Duck** — share links from any app straight into Duck.
-- **In-app engine updates** — update the bundled yt-dlp engine from
-  Settings; pinned to yt-dlp `2026.08.19` for a known-good, tested build.
+- **Self-updating yt-dlp engine** — silently brought to the pinned release
+  (`2026.08.19`) on every launch; manual reinstall available in Settings.
+- **Cookies support** — import a `cookies.txt` for login-walled sites, with
+  toggle and one-tap removal.
 - **Automatic app update checks** on launch, plus manual checks in
   Settings.
 - **Telegram support channel** — reach the owner at

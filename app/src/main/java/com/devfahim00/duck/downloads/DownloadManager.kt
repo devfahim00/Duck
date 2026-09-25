@@ -126,9 +126,10 @@ object DownloadManager {
         updateItem(id) { it.copy(status = DownloadStatus.DOWNLOADING, progress = 0f) }
 
         try {
-            YtDlpEngine.awaitInitialized(context)
+            YtDlpEngine.awaitReady(context)
             val dir = FileUtils.downloadDir(context)
             val request = YtDlpEngine.buildDownloadRequest(
+                context = context,
                 url = item.url,
                 formatSpec = item.formatSpec,
                 audioOnly = item.audioOnly,

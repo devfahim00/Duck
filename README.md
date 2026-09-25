@@ -93,7 +93,8 @@ checks against GitHub Releases.
 | 🔀 | **Simultaneous downloads** | Run multiple downloads at the same time |
 | 🔄 | **Auto app updates** | Silent GitHub Releases check on every launch, with a one-tap download |
 | 🔎 | **Manual update check** | "Check for updates" any time from Settings → App updates |
-| 🧠 | **In-app engine updates** | Update the bundled yt-dlp engine straight from Settings |
+| 🧠 | **Self-updating engine** | yt-dlp silently brought up to the pinned release on every launch, so site fixes arrive without touching Settings |
+| 🍪 | **Cookies support** | Import a Netscape `cookies.txt` to unlock login-walled videos (Instagram, Facebook, age-restricted YouTube) — same as Seal |
 | 🔗 | **Share-to-Duck** | Share links from any app straight into Duck |
 | 🌙 | **Midnight glass UI** | Dark Material 3 design, Inter typography, gradient progress bars with shimmer |
 | 📱 | **arm64-v8a build** | One lean ~65 MB APK covering virtually all modern Android phones |
@@ -288,10 +289,30 @@ open the app and follow the storage prompt, or Settings → Storage →
 
 <br>
 
-Extraction can break when a website changes its internals. Open
-Settings → **yt-dlp engine** → **Update yt-dlp** to pull the pinned,
-known-good engine build. If it persists, check whether a newer app release
-is available and report the URL via an issue or Telegram.
+Duck keeps its yt-dlp engine current automatically on every launch, so
+extractor fixes normally arrive on their own. If a site still fails:
+
+1. Open Settings → **yt-dlp engine** → **Update yt-dlp** to force a reinstall.
+2. If the error mentions cookies, login, age restrictions or "confirm you're
+   not a bot", open Settings → **Cookies** and import a `cookies.txt`
+   exported from a browser logged in to that site.
+
+If it persists, check whether a newer app release is available and report the
+URL via an issue or Telegram.
+
+</details>
+
+<details>
+<summary><b>How do I import cookies? (Instagram, Facebook, age-restricted YouTube)</b></summary>
+
+<br>
+
+1. Log in to the site in Chrome/Firefox on your phone or PC.
+2. Install a cookie-export extension (e.g. "Get cookies.txt LOCALLY") and
+   export the site's cookies as a `cookies.txt` file.
+3. In Duck: Settings → **Cookies** → **Import cookies.txt** and pick the file.
+   Cookies attach to every fetch and download from then on, and can be
+   toggled off or removed at any time.
 
 </details>
 

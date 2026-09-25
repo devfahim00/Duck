@@ -30,12 +30,20 @@ object Settings {
     var turboAria2 by mutableStateOf(false)
         private set
 
+    /**
+     * Attach the imported cookies.txt to every yt-dlp request. Only has an
+     * effect when CookieStore actually contains a file (Settings > Cookies).
+     */
+    var cookiesEnabled by mutableStateOf(false)
+        private set
+
     fun load(context: Context) {
         prefs = context.applicationContext
             .getSharedPreferences("duck_settings", Context.MODE_PRIVATE)
         threads = prefs.getInt("threads", 8).coerceIn(1, MAX_THREADS)
         parallelDownloads = prefs.getInt("parallel", 2)
         turboAria2 = prefs.getBoolean("turbo", false)
+        cookiesEnabled = prefs.getBoolean("cookies_enabled", false)
     }
 
     fun updateThreads(value: Int) {
@@ -52,5 +60,10 @@ object Settings {
     fun updateTurbo(value: Boolean) {
         turboAria2 = value
         prefs.edit().putBoolean("turbo", value).apply()
+    }
+
+    fun updateCookiesEnabled(value: Boolean) {
+        cookiesEnabled = value
+        prefs.edit().putBoolean("cookies_enabled", value).apply()
     }
 }

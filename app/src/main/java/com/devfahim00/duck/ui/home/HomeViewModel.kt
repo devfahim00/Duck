@@ -79,12 +79,23 @@ class HomeViewModel(
     private fun prettify(message: String?): String {
         val msg = message ?: "Something went wrong"
         return when {
+            msg.contains("is not a valid URL", ignoreCase = true) ->
+                "That does not look like a valid link."
             msg.contains("Unable to parse video information", ignoreCase = true) ->
                 "Could not read this link. Playlist pages are not supported yet - share a single video link."
             msg.contains("Unsupported URL", ignoreCase = true) ->
                 "This website is not supported by yt-dlp."
-            msg.contains("is not a valid URL", ignoreCase = true) ->
-                "That does not look like a valid link."
+            msg.contains("not a bot", ignoreCase = true) ||
+                msg.contains("Sign in to confirm", ignoreCase = true) ->
+                "This site wants to verify you are human (common on mobile networks). " +
+                    "Try again, or import your browser cookies in Settings > Cookies."
+            msg.contains("cookie", ignoreCase = true) ->
+                "This site needs login cookies. Export cookies.txt from your browser and " +
+                    "import it in Settings > Cookies (same as the Seal app)."
+            msg.contains("age-restricted", ignoreCase = true) ||
+                msg.contains("login required", ignoreCase = true) ||
+                msg.contains("requested content is not available", ignoreCase = true) ->
+                "This video needs an account. Import cookies in Settings > Cookies to download it."
             else -> msg.take(300)
         }
     }

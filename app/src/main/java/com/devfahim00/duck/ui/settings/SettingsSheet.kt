@@ -3,6 +3,8 @@ package com.devfahim00.duck.ui.settings
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +46,7 @@ import com.devfahim00.duck.R
 import com.devfahim00.duck.ui.common.GlassCard
 import com.devfahim00.duck.ui.common.GradientButton
 import com.devfahim00.duck.ui.common.IconBadge
+import com.devfahim00.duck.ui.theme.DangerGradient
 import com.devfahim00.duck.ui.theme.DangerRed
 import com.devfahim00.duck.ui.theme.DuckGradient
 import com.devfahim00.duck.ui.theme.InkHigh
@@ -51,10 +54,11 @@ import com.devfahim00.duck.ui.theme.InkLow
 import com.devfahim00.duck.ui.theme.InkMedium
 import com.devfahim00.duck.ui.theme.SpeedGradient
 import com.devfahim00.duck.util.AppUpdater
+import com.devfahim00.duck.util.CookieStore
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.util.Settings
+import com.devfahim00.duck.ytdlp.YtDlpEngine
 import com.devfahim00.duck.ytdlp.YtDlpUpdater
-import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -71,8 +75,28 @@ fun SettingsSheet(onDismiss: () -> Unit) {
     var appUpdateMessage by remember { mutableStateOf<String?>(null) }
     var appUpdateRelease by remember { mutableStateOf<AppUpdater.Release?>(null) }
 
+    // ---- Cookies state ----
+    var cookiesPresent by remember { mutableStateOf(CookieStore.exists(context)) }
+    var cookiesMessage by remember { mutableStateOf<String?>(null) }
+    val cookiePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val error = CookieStore.import(context, uri)
+        if (error == null) {
+            cookiesPresent = true
+            Settings.updateCookiesEnabled(true)
+            cookiesMessage = null
+        } else {
+            cookiesMessage = error
+        }
+    }
+
     LaunchedEffect(Unit) {
-        engineVersion = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
+        engineVersion = withContext(Dispatchers.IO) {
+            runCatching { YtDlpEngine.awaitInitialized(context) }
+            YtDlpUpdater.currentVersion(context)
+        }
     }
 
     LaunchedEffect(updating) {
@@ -83,7 +107,7 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 is YtDlpUpdater.Result.Failure -> result.message
             }
         }
-        engineVersion = runCatching { YoutubeDL.getInstance().version(context) }.getOrNull()
+        engineVersion = withContext(Dispatchers.IO) { YtDlpUpdater.currentVersion(context) }
         updating = false
     }
 
@@ -237,12 +261,107 @@ fun SettingsSheet(onDismiss: () -> Unit) {
                 }
             }
 
+            // ----- Cookies -----
+            SectionCard(
+                iconRes = R.drawable.ic_cookie,
+                title = "Cookies",
+                subtitle = if (cookiesPresent) {
+                    "cookies.txt imported - unlocks sites that need a login"
+                } else {
+                    "Some sites (Instagram, Facebook, age-restricted YouTube) only work with cookies from a logged-in browser"
+                }
+            ) {
+                if (cookiesPresent) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Use cookies",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = InkHigh
+                            )
+                            Text(
+                                "Attached to every fetch and download",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = InkMedium
+                            )
+                        }
+                        Spacer(Modifier.size(12.dp))
+                        Switch(
+                            checked = Settings.cookiesEnabled,
+                            onCheckedChange = { Settings.updateCookiesEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedTrackColor = DuckGradient.first(),
+                                checkedThumbColor = InkHigh,
+                                checkedBorderColor = DuckGradient.first(),
+                                checkedIconColor = Color(0xFF241800)
+                            )
+                        )
+                    }
+                    GradientButton(
+                        text = "Replace cookies file",
+                        icon = painterResource(R.drawable.ic_paste),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        onClick = {
+                            cookiePicker.launch(
+                                arrayOf("text/plain", "application/octet-stream", "*/*")
+                            )
+                        }
+                    )
+                    GradientButton(
+                        text = "Remove cookies",
+                        icon = painterResource(R.drawable.ic_delete),
+                        gradient = DangerGradient,
+                        contentColor = Color(0xFF2B0A0A),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        onClick = {
+                            CookieStore.clear(context)
+                            Settings.updateCookiesEnabled(false)
+                            cookiesPresent = false
+                            cookiesMessage = null
+                        }
+                    )
+                } else {
+                    GradientButton(
+                        text = "Import cookies.txt",
+                        icon = painterResource(R.drawable.ic_paste),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        onClick = {
+                            cookiePicker.launch(
+                                arrayOf("text/plain", "application/octet-stream", "*/*")
+                            )
+                        }
+                    )
+                    Text(
+                        "How to: log in to the site in your browser, export cookies.txt with a " +
+                            "cookie-export extension, then pick the file here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkLow
+                    )
+                }
+                cookiesMessage?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DangerRed
+                    )
+                }
+            }
+
             // ----- Engine -----
             SectionCard(
                 iconRes = R.drawable.ic_update,
                 title = "yt-dlp engine",
                 subtitle = if (engineVersion != null) {
-                    "Version $engineVersion"
+                    "Version $engineVersion - keeps itself updated automatically on every launch"
                 } else {
                     "Bundled with the app - check for the latest release"
                 }
