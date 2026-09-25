@@ -81,21 +81,46 @@ android {
 
 // STAGE 1 of the curl_cffi migration (see ChaquopyDiagnostics.kt). Not wired
 // into the real engine yet - this only proves Chaquopy can resolve + package
-// a real CPython 3.13 + yt-dlp + curl_cffi for arm64-v8a. Python 3.13 chosen
-// because that's the version curl_cffi actually publishes an
-// "android_24_arm64_v8a" wheel for on PyPI (verified by hand: `pip download
-// curl_cffi --platform android_24_arm64_v8a --python-version 3.13 --abi
-// cp313 --only-binary=:all:` resolves
-// curl_cffi-0.16.3-cp313-cp313-android_24_arm64_v8a.whl, MIT licensed,
-// Requires-Python >=3.10). This is a SEPARATE top-level block, not
-// android.defaultConfig.python{} - that DSL is Groovy-only and deprecated
-// since Chaquopy 15; .kts files must use this chaquopy{} block instead.
+// a real CPython 3.13 + yt-dlp + curl_cffi for arm64-v8a. This is a SEPARATE
+// top-level block, not android.defaultConfig.python{} - that DSL is
+// Groovy-only and deprecated since Chaquopy 15; .kts files must use this
+// chaquopy{} block instead.
+//
+// WHY --no-deps AND THE HAND-PINNED LIST: curl_cffi (0.15.0+) declares a
+// runtime dependency on cffi>=2.0.0 - a pin that exists for FREE-THREADED
+// CPython support (lexiforest/curl_cffi PR #697), not because the GIL-build
+// code needs cffi 2.x. But no cffi 2.x Android wheels exist anywhere: PyPI
+// publishes zero cffi android wheels, and Chaquopy's own index
+// (chaquo.com/pypi-13.1) tops out at cffi 1.17.1 for
+// cp313/android_24/arm64_v8a. pip's resolver therefore backtracks through
+// every curl_cffi release and fails with ResolutionImpossible at
+// installReleasePythonRequirements.
+//
+// Fix: disable dependency resolution entirely and pin the closed dependency
+// set by hand. The set is small and fully known:
+//   * yt-dlp             - no required deps (brotli/websockets/etc. are
+//                          optional extras we deliberately don't bundle)
+//   * curl_cffi          - needs cffi + certifi (both pinned below)
+//   * cffi 1.17.1        - needs pycparser + chaquopy-libffi (both below);
+//                          its _cffi_backend.so is ABI-compatible with
+//                          curl_cffi's GIL-build _wrapper.abi3.so (neither
+//                          exports _cffi_* symbols to the other: the wrapper
+//                          is fully self-contained, both only need
+//                          libpython3.13.so, which Chaquopy ships)
+//   * certifi, pycparser, chaquopy-libffi - no deps of their own
+// Once Chaquopy's index ships cffi 2.x for android_24_arm64_v8a, this can
+// go back to plain install("yt-dlp"); install("curl_cffi") with no options().
 chaquopy {
     defaultConfig {
         version = "3.13"
         pip {
-            install("yt-dlp")
-            install("curl_cffi")
+            options("--no-deps")
+            install("yt-dlp==2026.8.19")
+            install("curl_cffi==0.16.3")   // android_24_arm64_v8a wheel from PyPI
+            install("cffi==1.17.1")        // android_24_arm64_v8a wheel from chaquo.com/pypi-13.1
+            install("chaquopy-libffi")     // cffi's bundled libffi, same Chaquopy index
+            install("pycparser")           // cffi runtime dep (pure Python, PyPI)
+            install("certifi")             // curl_cffi runtime dep (pure Python, PyPI)
         }
     }
 }
