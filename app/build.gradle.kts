@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.chaquo.python")
 }
 
 android {
@@ -17,8 +18,28 @@ android {
 
         // Ship arm64-v8a only: covers virtually all modern Android phones and
         // keeps the APK roughly 3x smaller than a universal build.
+        // Also the ONLY ABI curl_cffi currently publishes an Android wheel
+        // for (curl_cffi-*-android_24_arm64_v8a.whl on PyPI) - convenient
+        // overlap, not a coincidence we engineered.
         ndk {
             abiFilters += listOf("arm64-v8a")
+        }
+
+        // STAGE 1 of the curl_cffi migration (see ChaquopyDiagnostics.kt).
+        // Not wired into the real engine yet - this only proves Chaquopy can
+        // resolve + package a real CPython 3.13 + yt-dlp + curl_cffi for
+        // arm64-v8a. Python 3.13 chosen because that's the version curl_cffi
+        // actually publishes an "android_24_arm64_v8a" wheel for on PyPI
+        // (verified by hand: `pip download curl_cffi --platform
+        // android_24_arm64_v8a --python-version 3.13 --abi cp313
+        // --only-binary=:all:` resolves curl_cffi-0.16.3-cp313-cp313-
+        // android_24_arm64_v8a.whl, MIT licensed, Requires-Python >=3.10).
+        python {
+            version = "3.13"
+            pip {
+                install("yt-dlp")
+                install("curl_cffi")
+            }
         }
     }
 
