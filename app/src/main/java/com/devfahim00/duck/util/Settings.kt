@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.devfahim00.duck.ytdlp.UpdateChannel
 
 /**
  * App settings backed by SharedPreferences, exposed as Compose state so the
@@ -37,6 +38,20 @@ object Settings {
     var cookiesEnabled by mutableStateOf(false)
         private set
 
+    /** Which yt-dlp release channel the engine follows (stable / nightly / master). */
+    var updateChannel by mutableStateOf(UpdateChannel.DEFAULT)
+        private set
+
+    /**
+     * Impersonate Chrome (TLS + HTTP fingerprint via curl_cffi) for EVERY
+     * request. Off by default: extractors that need impersonation (Pornhub,
+     * Instagram, TikTok...) already ask for it themselves. Turn this on for
+     * sites that block plain Python clients but have no impersonating
+     * extractor. Not combinable with the turbo downloader.
+     */
+    var impersonateAll by mutableStateOf(false)
+        private set
+
     fun load(context: Context) {
         prefs = context.applicationContext
             .getSharedPreferences("duck_settings", Context.MODE_PRIVATE)
@@ -44,6 +59,8 @@ object Settings {
         parallelDownloads = prefs.getInt("parallel", 2)
         turboAria2 = prefs.getBoolean("turbo", false)
         cookiesEnabled = prefs.getBoolean("cookies_enabled", false)
+        updateChannel = UpdateChannel.fromId(prefs.getString("ytdlp_channel", null))
+        impersonateAll = prefs.getBoolean("impersonate_all", false)
     }
 
     fun updateThreads(value: Int) {
@@ -65,5 +82,15 @@ object Settings {
     fun updateCookiesEnabled(value: Boolean) {
         cookiesEnabled = value
         prefs.edit().putBoolean("cookies_enabled", value).apply()
+    }
+
+    fun selectUpdateChannel(value: UpdateChannel) {
+        updateChannel = value
+        prefs.edit().putString("ytdlp_channel", value.id).apply()
+    }
+
+    fun updateImpersonateAll(value: Boolean) {
+        impersonateAll = value
+        prefs.edit().putBoolean("impersonate_all", value).apply()
     }
 }

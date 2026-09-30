@@ -4,10 +4,9 @@ import android.content.Context
 import android.media.MediaScannerConnection
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.util.Settings
+import com.devfahim00.duck.ytdlp.DownloadOutcome
 import com.devfahim00.duck.ytdlp.FormatOption
 import com.devfahim00.duck.ytdlp.YtDlpEngine
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLResponse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,7 +71,7 @@ object DownloadManager {
             updateItem(id) { it.copy(status = DownloadStatus.CANCELLED) }
             persist()
         } else {
-            YoutubeDL.getInstance().destroyProcessById(id)
+            YtDlpEngine.cancel(id)
         }
     }
 
@@ -96,7 +95,7 @@ object DownloadManager {
 
     fun delete(id: String) {
         cancelledIds.add(id)
-        YoutubeDL.getInstance().destroyProcessById(id)
+        YtDlpEngine.cancel(id)
         _downloads.update { current -> current.filterNot { it.id == id } }
         persist()
     }
@@ -128,8 +127,10 @@ object DownloadManager {
         try {
             YtDlpEngine.awaitReady(context)
             val dir = FileUtils.downloadDir(context)
-            val request = YtDlpEngine.buildDownloadRequest(
+
+            val outcome = YtDlpEngine.download(
                 context = context,
+                id = id,
                 url = item.url,
                 formatSpec = item.formatSpec,
                 audioOnly = item.audioOnly,
@@ -137,40 +138,58 @@ object DownloadManager {
                 outputDir = dir,
                 threads = Settings.threads,
                 turbo = Settings.turboAria2
-            )
-
-            val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(request, id) { progress, eta, line ->
+            ) { progress ->
                 updateItem(id) { current ->
-                    val stats = parseLine(line)
                     current.copy(
-                        progress = stats.percent
-                            ?: if (progress >= 0f) progress else current.progress,
-                        etaSeconds = stats.eta
-                            ?: if (eta >= 0L) eta else current.etaSeconds,
-                        speed = stats.speed ?: current.speed,
-                        merging = current.merging || line.contains("[Merger]")
+                        progress = progress.percent ?: current.progress,
+                        etaSeconds = progress.etaSeconds ?: current.etaSeconds,
+                        speed = progress.speed ?: current.speed,
+                        merging = current.merging || progress.merging
                     )
                 }
             }
 
-            val path = extractFilePath(response.out)
-                ?: dir.listFiles { f -> f.lastModified() >= startedAt }
-                    ?.maxOfOrNull { it }
-                    ?.absolutePath
+            when (outcome) {
+                is DownloadOutcome.Completed -> {
+                    val path = outcome.filePath?.takeIf { File(it).exists() }
+                        ?: dir.listFiles { f -> f.lastModified() >= startedAt }
+                            ?.maxOfOrNull { it }
+                            ?.absolutePath
 
-            updateItem(id) {
-                it.copy(
-                    status = DownloadStatus.COMPLETED,
-                    progress = 100f,
-                    filePath = path ?: it.filePath,
-                    speed = null,
-                    etaSeconds = -1L,
-                    merging = false
-                )
+                    updateItem(id) {
+                        it.copy(
+                            status = DownloadStatus.COMPLETED,
+                            progress = 100f,
+                            filePath = path ?: it.filePath,
+                            speed = null,
+                            etaSeconds = -1L,
+                            merging = false
+                        )
+                    }
+                    path?.let { MediaScannerConnection.scanFile(context, arrayOf(it), null, null) }
+                }
+
+                is DownloadOutcome.Cancelled -> {
+                    cancelledIds.remove(id)
+                    updateItem(id) { it.copy(status = DownloadStatus.CANCELLED, speed = null, merging = false) }
+                }
+
+                is DownloadOutcome.Failed -> {
+                    val wasCancelled = cancelledIds.remove(id)
+                    updateItem(id) { current ->
+                        if (wasCancelled) {
+                            current.copy(status = DownloadStatus.CANCELLED, speed = null, merging = false)
+                        } else {
+                            current.copy(
+                                status = DownloadStatus.FAILED,
+                                error = cleanError(outcome.message),
+                                speed = null,
+                                merging = false
+                            )
+                        }
+                    }
+                }
             }
-            path?.let { MediaScannerConnection.scanFile(context, arrayOf(it), null, null) }
-        } catch (e: YoutubeDL.CanceledException) {
-            updateItem(id) { it.copy(status = DownloadStatus.CANCELLED, speed = null, merging = false) }
         } catch (e: Exception) {
             val wasCancelled = cancelledIds.remove(id)
             updateItem(id) { current ->
@@ -188,51 +207,6 @@ object DownloadManager {
     private fun updateItem(id: String, transform: (DownloadItem) -> DownloadItem) {
         _downloads.update { current -> current.map { if (it.id == id) transform(it) else it } }
     }
-
-    /** One parsed stdout line: percent / ETA / speed, whichever could be extracted. */
-    private data class LineStats(val percent: Float?, val eta: Long?, val speed: String?)
-
-    /** "[download]  45.3% of ~12.50MiB at 1.05MiB/s ETA 00:12" */
-    private val linePercent = Regex("""\[download\]\s+(\d+(?:\.\d+)?)%""")
-
-    /** aria2c turbo line "[#a1b2c3 10MiB/20MiB(50%) CN:8 DL:2.3MiB ETA:8s]" */
-    private val ariaPercent = Regex("""\((\d+(?:\.\d+)?)%\)""")
-
-    /** "ETA 00:12" (MM:SS) or "ETA 1:02:03" (H:MM:SS) */
-    private val etaPattern = Regex("""ETA\s+(\d+):(\d+)(?::(\d+))?""")
-
-    /** "ETA:8s" (aria2c) */
-    private val ariaEta = Regex("""ETA:(\d+)s""")
-
-    /** "at 1.05MiB/s" */
-    private val speedPattern = Regex("""at\s+([\d.]+\s*[KMGT]?i?B/s)""")
-
-    /** "DL:2.3MiB" inside the aria2c summary line */
-    private val ariaSpeed = Regex("""DL:([\d.]+[KMGT]?i?B)""")
-
-    private fun parseLine(line: String): LineStats {
-        val percent = linePercent.find(line)?.groupValues?.get(1)?.toFloatOrNull()
-            ?: ariaPercent.find(line)?.groupValues?.get(1)?.toFloatOrNull()
-
-        val eta = etaPattern.find(line)?.let { m ->
-            val g = m.groupValues
-            if (g.getOrNull(3) != null) {
-                // H:MM:SS
-                (g[1].toLongOrNull() ?: 0L) * 3600L + (g[2].toLongOrNull() ?: 0L) * 60L + (g[3].toLongOrNull() ?: 0L)
-            } else {
-                // MM:SS
-                (g[1].toLongOrNull() ?: 0L) * 60L + (g[2].toLongOrNull() ?: 0L)
-            }
-        } ?: ariaEta.find(line)?.groupValues?.get(1)?.toLongOrNull()
-
-        val speed = speedPattern.find(line)?.groupValues?.get(1)
-            ?: ariaSpeed.find(line)?.let { it.groupValues[1] + "/s" }
-
-        return LineStats(percent, eta, speed)
-    }
-
-    private fun extractFilePath(out: String): String? =
-        out.lines().map { it.trim() }.lastOrNull { it.startsWith("/") }
 
     private fun cleanError(message: String?): String {
         val msg = message?.trim().orEmpty()

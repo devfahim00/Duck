@@ -1,3 +1,30 @@
+# Duck (unreleased) - Chaquopy engine
+
+Duck's yt-dlp now runs on a real CPython 3.13 (via Chaquopy) with `curl_cffi`,
+instead of youtubedl-android's bundled Python 3.8.
+
+- **Browser impersonation works.** yt-dlp can finally use `curl_cffi`, so
+  extractors that need a real browser TLS/HTTP fingerprint (Pornhub,
+  Instagram, TikTok, ...) get a Chrome fingerprint automatically. A new
+  Settings switch, *Impersonate Chrome everywhere*, applies it to every request.
+- **yt-dlp release channels.** Settings -> Engine & Updates lets you follow
+  `stable`, `nightly` (default, what yt-dlp recommends) or `master`. Duck
+  checks once a day, skips the download if you already have the newest tag,
+  and never goes below the version bundled in the APK. A broken download is
+  discarded automatically.
+- **User-Agent:** Duck no longer forces an Android Chrome UA. yt-dlp's own
+  current Chrome UA is used so it never contradicts the impersonated TLS
+  fingerprint (the browser's UA is still sent when you signed in with the
+  built-in browser, since those sessions are often UA-bound).
+- **Turbo (aria2c) progress** is now read from aria2c's readout and reported
+  through yt-dlp's progress hooks. Turbo is skipped while "Impersonate Chrome
+  everywhere" is on (yt-dlp never hands impersonated requests to external
+  downloaders).
+- The pinned yt-dlp zipapp in `res/raw` is gone; the bundled copy now comes
+  from pip at build time (`yt-dlp==2026.08.19`).
+
+---
+
 # Duck v1.2.0
 
 The "actually works everywhere" release: the xnxx bug is fixed at the root,

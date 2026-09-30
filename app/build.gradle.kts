@@ -79,9 +79,13 @@ android {
     }
 }
 
-// STAGE 1 of the curl_cffi migration (see ChaquopyDiagnostics.kt). Not wired
-// into the real engine yet - this only proves Chaquopy can resolve + package
-// a real CPython 3.13 + yt-dlp + curl_cffi for arm64-v8a. This is a SEPARATE
+// The engine: a real CPython 3.13 + yt-dlp + curl_cffi for arm64-v8a, driven
+// by app/src/main/python/ytdlp_bridge.py (STAGE 2 - YtDlpEngine talks to it;
+// the youtubedl-android AARs are kept ONLY for their ffmpeg + aria2c
+// binaries). The yt-dlp pinned here is the bundled fallback: YtDlpUpdater
+// downloads newer zipapps from the selected channel (stable / nightly /
+// master) at runtime and never goes below this version. Keep
+// YtDlpUpdater.BUNDLED_VERSION in sync with the pin below. This is a SEPARATE
 // top-level block, not android.defaultConfig.python{} - that DSL is
 // Groovy-only and deprecated since Chaquopy 15; .kts files must use this
 // chaquopy{} block instead.

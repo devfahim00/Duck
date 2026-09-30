@@ -6,6 +6,7 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import com.devfahim00.duck.util.AppUpdater
 import com.devfahim00.duck.util.CookieStore
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.util.Settings
+import com.devfahim00.duck.ytdlp.UpdateChannel
 import com.devfahim00.duck.ytdlp.YtDlpEngine
 import com.devfahim00.duck.ytdlp.YtDlpUpdater
 import kotlinx.coroutines.Dispatchers
@@ -333,6 +335,41 @@ private fun SettingsDownloadsScreen(onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun ChannelRow(
+    channel: UpdateChannel,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    GlassCard(
+        shape = shape,
+        border = if (selected) {
+            BorderStroke(1.5.dp, Brush.horizontalGradient(DuckGradient))
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(enabled = enabled, onClick = onClick)
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Text(
+                channel.label,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (selected) InkHigh else InkMedium
+            )
+            Text(
+                channel.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = InkMedium
+            )
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Cookies & Sign-in: its own page, unchanged behavior from before.
 // ---------------------------------------------------------------------------
@@ -514,7 +551,7 @@ private fun SettingsEngineScreen(onBack: () -> Unit) {
                 is YtDlpUpdater.Result.Failure -> result.message
             }
         }
-        engineVersion = withContext(Dispatchers.IO) { YtDlpUpdater.currentVersion(context) }
+        engineVersion = YtDlpUpdater.currentVersion(context)
         updating = false
     }
 
@@ -549,11 +586,31 @@ private fun SettingsEngineScreen(onBack: () -> Unit) {
             iconRes = R.drawable.ic_update,
             title = "yt-dlp engine",
             subtitle = if (engineVersion != null) {
-                "Version $engineVersion - keeps itself updated automatically on every launch"
+                "Version $engineVersion (${Settings.updateChannel.label.lowercase()}) - " +
+                    "checks for a newer release once a day"
             } else {
                 "Bundled with the app - check for the latest release"
             }
         ) {
+            Text(
+                "Release channel",
+                style = MaterialTheme.typography.labelLarge,
+                color = InkMedium
+            )
+            UpdateChannel.entries.forEach { channel ->
+                ChannelRow(
+                    channel = channel,
+                    selected = Settings.updateChannel == channel,
+                    enabled = !updating,
+                    onClick = {
+                        if (Settings.updateChannel != channel) {
+                            Settings.selectUpdateChannel(channel)
+                            updateResult = null
+                            updating = true // switch to the new channel right away
+                        }
+                    }
+                )
+            }
             GradientButton(
                 text = if (updating) "Updating…" else "Update yt-dlp",
                 icon = painterResource(R.drawable.ic_update),
@@ -568,6 +625,48 @@ private fun SettingsEngineScreen(onBack: () -> Unit) {
                     it,
                     style = MaterialTheme.typography.bodySmall,
                     color = if (it.startsWith("Update failed")) DangerRed else InkMedium
+                )
+            }
+        }
+
+        // ----- Browser impersonation -----
+        GlassCard(shape = RoundedCornerShape(18.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(14.dp)
+            ) {
+                IconBadge(
+                    painter = painterResource(R.drawable.ic_layers),
+                    size = 40.dp,
+                    container = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tint = DuckGradient.first()
+                )
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Impersonate Chrome everywhere",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = InkHigh
+                    )
+                    Text(
+                        "Sites that need it (Pornhub, Instagram, TikTok...) are already " +
+                            "impersonated automatically. Turn this on to fake a real Chrome " +
+                            "browser for every request - helps against strict bot walls. " +
+                            "Turbo downloader is skipped while this is on.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = InkMedium
+                    )
+                }
+                Spacer(Modifier.size(12.dp))
+                Switch(
+                    checked = Settings.impersonateAll,
+                    onCheckedChange = { Settings.updateImpersonateAll(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = DuckGradient.first(),
+                        checkedThumbColor = InkHigh,
+                        checkedBorderColor = DuckGradient.first(),
+                        checkedIconColor = Color(0xFF241800)
+                    )
                 )
             }
         }

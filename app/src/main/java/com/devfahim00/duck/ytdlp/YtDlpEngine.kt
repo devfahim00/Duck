@@ -1,13 +1,13 @@
 package com.devfahim00.duck.ytdlp
 
 import android.content.Context
+import com.chaquo.python.PyObject
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
 import com.devfahim00.duck.util.CookieStore
 import com.devfahim00.duck.util.Settings
 import com.yausername.aria2c.Aria2c
 import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,14 +17,68 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 import java.io.File
+import java.util.Locale
+
+/** A failure reported by yt-dlp (already stripped of ANSI codes / "ERROR:"). */
+class YtDlpException(message: String) : Exception(message)
+
+/** One progress tick from a running download. Negative numbers mean "unknown". */
+data class ProgressUpdate(
+    val percent: Float?,
+    val speed: String?,
+    val etaSeconds: Long?,
+    val merging: Boolean
+)
+
+sealed interface DownloadOutcome {
+    data class Completed(val filePath: String?) : DownloadOutcome
+    data object Cancelled : DownloadOutcome
+    data class Failed(val message: String) : DownloadOutcome
+}
 
 /**
- * Thin wrapper around youtubedl-android.
- * Takes care of one-time initialization (python/yt-dlp/ffmpeg/aria2c extraction),
- * installs the pinned yt-dlp engine from APK resources (see
- * [YtDlpUpdater.ensurePinnedEngine]) and builds the yt-dlp commands used by
- * the app.
+ * Receives progress from the Python side. Python calls [onProgress] from the
+ * thread that is running the download, so implementations must be thread-safe.
+ * Public + concrete on purpose: Chaquopy exposes it to Python by reflection.
+ */
+class ProgressSink(private val callback: (ProgressUpdate) -> Unit) {
+    @Suppress("unused") // called from ytdlp_bridge.py
+    fun onProgress(percent: Double, speedBps: Double, etaSeconds: Double, merging: Boolean) {
+        callback(
+            ProgressUpdate(
+                percent = if (percent >= 0) percent.toFloat() else null,
+                speed = if (speedBps > 0) formatSpeed(speedBps) else null,
+                etaSeconds = if (etaSeconds >= 0) etaSeconds.toLong() else null,
+                merging = merging
+            )
+        )
+    }
+
+    private fun formatSpeed(bytesPerSecond: Double): String {
+        val units = arrayOf("B/s", "KiB/s", "MiB/s", "GiB/s")
+        var value = bytesPerSecond
+        var unit = 0
+        while (value >= 1024 && unit < units.lastIndex) {
+            value /= 1024
+            unit++
+        }
+        return String.format(Locale.US, "%.2f%s", value, units[unit])
+    }
+}
+
+/**
+ * Duck's download engine: yt-dlp running inside Chaquopy's CPython 3.13
+ * (see app/src/main/python/ytdlp_bridge.py) so that curl_cffi can give
+ * yt-dlp real browser TLS impersonation.
+ *
+ * This object is the ONLY place that knows about Chaquopy. It
+ *  - starts Python once and tells it where ffmpeg / aria2c live (both still
+ *    come from the youtubedl-android AARs - only their Python is gone),
+ *  - activates the newest yt-dlp the updater has downloaded (release channel
+ *    stable / nightly / master, see [YtDlpUpdater]),
+ *  - fetches formats and runs downloads through the bridge.
  */
 object YtDlpEngine {
 
@@ -34,26 +88,18 @@ object YtDlpEngine {
     @Volatile
     private var initialized = false
 
-    /**
-     * One-shot background job that (a) extracts the runtime, (b) swaps the
-     * stale binary bundled in the AAR for the pinned engine shipped in
-     * the APK (local copy, works offline) and (c) refreshes to the newest
-     * stable yt-dlp from the network. (a)+(b) are what fetches and
-     * downloads wait for via [awaitReady]; (c) is best-effort background
-     * work that the NEXT download picks up.
-     */
+    /** Background bootstrap (init + engine activation + network refresh). */
     @Volatile
     private var bootstrapJob: Job? = null
 
-    /** Kick off engine init + pinned engine install + network refresh. */
+    /** Kick off engine init and the daily network refresh. */
     fun prewarm(context: Context) {
         if (bootstrapJob != null) return
         bootstrapJob = scope.launch {
             runCatching { awaitInitialized(context) }
-            runCatching { YtDlpUpdater.ensurePinnedEngine(context) }
         }
-        // Network refresh only after the ready part is done - the running
-        // python env is extracted and the pinned binary is in place.
+        // Network refresh only after init is done, so it never delays the
+        // first fetch or download.
         scope.launch {
             bootstrapJob?.join()
             runCatching { YtDlpUpdater.refreshLatest(context) }
@@ -61,8 +107,8 @@ object YtDlpEngine {
     }
 
     /**
-     * Suspends until the engine is ready. Safe to call from anywhere, any number
-     * of times; the first caller performs the extraction, everyone else waits.
+     * Suspends until Python is running and configured. Safe to call from
+     * anywhere, any number of times; the first caller does the work.
      */
     suspend fun awaitInitialized(context: Context) {
         if (initialized) return
@@ -70,20 +116,33 @@ object YtDlpEngine {
             if (initialized) return
             val appContext = context.applicationContext
             withContext(Dispatchers.IO) {
-                YoutubeDL.getInstance().init(appContext)
+                // Extract ffmpeg / aria2c support libs (no Python from that AAR is used).
                 FFmpeg.getInstance().init(appContext)
                 Aria2c.getInstance().init(appContext)
+
+                if (!Python.isStarted()) {
+                    Python.start(AndroidPlatform(appContext))
+                }
+                val nativeDir = appContext.applicationInfo.nativeLibraryDir
+                val packages = File(File(appContext.noBackupFilesDir, "youtubedl-android"), "packages")
+                bridge().callAttr(
+                    "configure",
+                    File(nativeDir, "libffmpeg.so").absolutePath,
+                    File(packages, "ffmpeg/usr/lib").absolutePath,
+                    File(nativeDir, "libaria2c.so").absolutePath,
+                    File(packages, "aria2c/usr/lib").absolutePath
+                )
+                // Switch to the last downloaded yt-dlp (or keep the bundled one).
+                YtDlpUpdater.activateSaved(appContext)
             }
             initialized = true
         }
     }
 
     /**
-     * Suspends until the engine is ready: runtime extracted AND the pinned
-     * (known-good) yt-dlp binary installed. Both steps are local-only, so
-     * this normally completes in a few seconds even on a fresh, offline
-     * install - the stale AAR binary (the one with the
-     * "I/O operation on closed file" urllib regression) is never used.
+     * Suspends until the engine is ready. Normally instant; on a fresh
+     * install it waits (up to a minute) for the background bootstrap, which
+     * only does local work, so it works offline too.
      */
     suspend fun awaitReady(context: Context) {
         val job = bootstrapJob
@@ -91,160 +150,165 @@ object YtDlpEngine {
             withTimeoutOrNull(60_000L) { job.join() }
         }
         awaitInitialized(context)
-        runCatching { YtDlpUpdater.ensurePinnedEngine(context) }
-    }
-
-    /**
-     * Fetches video metadata + builds the list of selectable quality options.
-     */
-    suspend fun fetchFormats(context: Context, url: String): Pair<VideoInfo, List<FormatOption>> {
-        awaitReady(context)
-        return withContext(Dispatchers.IO) {
-            val request = YoutubeDLRequest(url)
-            request.addOption("--no-playlist")
-            request.addOption("--no-warnings")
-            request.addOption("--socket-timeout", "20")
-            request.addOption("--retries", "3")
-            request.addOption("--extractor-retries", "2")
-            applySharedOptions(context, request, url)
-            val info = YoutubeDL.getInstance().getInfo(request)
-            info to FormatOptions.build(info)
+        // If an update finished while downloads were running it could not be
+        // activated then (yt-dlp modules must not change under a live
+        // download). This is the next safe moment. Off the main thread: a
+        // real switch re-imports yt-dlp, which takes a moment.
+        withContext(Dispatchers.IO) {
+            runCatching { YtDlpUpdater.activateSaved(context.applicationContext) }
         }
     }
 
+    // ------------------------------------------------------------ bridge access
+
+    private fun bridge(): PyObject = Python.getInstance().getModule("ytdlp_bridge")
+
+    /** Result of asking Python to switch yt-dlp. */
+    data class EngineSwitch(val ok: Boolean, val busy: Boolean, val version: String?, val error: String?)
+
+    /** Activates the yt-dlp zipapp at [path]; "" returns to the bundled pip copy. Blocking. */
+    internal fun useEngine(path: String): EngineSwitch {
+        val json = JSONObject(bridge().callAttr("use_engine", path).toString())
+        return EngineSwitch(
+            ok = json.optBoolean("ok", false),
+            busy = json.optBoolean("busy", false),
+            version = json.str("version"),
+            error = json.str("error")
+        )
+    }
+
+    /** Version of the yt-dlp that is active right now. Blocking. */
+    internal fun activeVersion(): String? =
+        bridge().callAttr("engine_version").toString().trim().takeIf { it.isNotEmpty() }
+
+    /** JSON from `engine_diagnostics()`: curl_cffi / impersonation targets / versions. */
+    suspend fun diagnostics(context: Context): String {
+        awaitReady(context)
+        return withContext(Dispatchers.IO) { bridge().callAttr("engine_diagnostics").toString() }
+    }
+
+    // -------------------------------------------------------------------- fetch
+
+    /** Fetches video metadata + builds the list of selectable quality options. */
+    suspend fun fetchFormats(context: Context, url: String): Pair<VideoMeta, List<FormatOption>> {
+        awaitReady(context)
+        return withContext(Dispatchers.IO) {
+            val json = JSONObject(
+                bridge().callAttr("fetch_formats", url, buildOptions(context, url).toString()).toString()
+            )
+            if (json.has("error") && !json.isNull("error")) {
+                throw YtDlpException(json.optString("error"))
+            }
+            val meta = VideoMeta.fromJson(json)
+            meta to FormatOptions.build(meta)
+        }
+    }
+
+    // ----------------------------------------------------------------- download
+
     /**
-     * Builds the yt-dlp download command for a selected quality.
+     * Runs one download to completion (or cancel / failure). Suspends on an IO
+     * thread; [onProgress] is called from that thread.
      *
      * Multi-threading:
      *  - turbo (aria2c): segmented multi-connection HTTP downloader (-x/-s connections)
      *  - default: yt-dlp native concurrent fragment downloads (-N)
      */
-    fun buildDownloadRequest(
+    suspend fun download(
         context: Context,
+        id: String,
         url: String,
         formatSpec: String,
         audioOnly: Boolean,
         needsMerge: Boolean,
         outputDir: File,
         threads: Int,
-        turbo: Boolean
-    ): YoutubeDLRequest {
-        val request = YoutubeDLRequest(url)
-        request.addOption("--no-playlist")
-        request.addOption("--newline")
-        request.addOption("--no-mtime")
-        // CRITICAL: --print (below) implies --quiet, which implies --no-progress in
-        // yt-dlp -> NO progress lines on stdout at all (progress UI stays at 0%
-        // until the download finishes). --progress explicitly re-enables the
-        // progress output, and combined with --newline each update arrives as its
-        // own stdout line that the youtubedl-android callback can parse.
-        request.addOption("--progress")
-        request.addOption("-f", formatSpec)
-        request.addOption("-o", outputDir.absolutePath + "/%(title)s [%(id)s].%(ext)s")
-        // yt-dlp prints the final file path as the last stdout line
-        request.addOption("--print", "after_move:filepath")
-        request.addOption("--socket-timeout", "20")
-        request.addOption("--retries", "3")
-        applySharedOptions(context, request, url)
-
-        if (needsMerge && !audioOnly) {
-            request.addOption("--merge-output-format", "mkv")
-        }
-
-        if (turbo) {
-            // youtubedl-android ships aria2c as libaria2c.so.
-            // BUG FIX: aria2c's own default --summary-interval is 60 seconds, so
-            // without setting it explicitly the UI would sit at 0% / "Connecting"
-            // for up to a full minute (or the whole download, if it finishes
-            // sooner) with no progress lines at all, then jump straight to
-            // completed once the process exited. Forcing summary-interval=1
-            // makes aria2c print a fresh line every second so the progress bar
-            // actually animates while the file is downloading.
-            request.addOption("--downloader", "libaria2c.so")
-            request.addOption(
-                "--external-downloader-args",
-                "aria2c:-x $threads -s $threads -k 1M --summary-interval=1"
+        turbo: Boolean,
+        onProgress: (ProgressUpdate) -> Unit
+    ): DownloadOutcome {
+        awaitReady(context)
+        return withContext(Dispatchers.IO) {
+            val json = JSONObject(
+                bridge().callAttr(
+                    "start_download",
+                    id,
+                    url,
+                    formatSpec,
+                    outputDir.absolutePath,
+                    audioOnly,
+                    needsMerge,
+                    threads,
+                    turbo,
+                    buildOptions(context, url).toString(),
+                    ProgressSink(onProgress)
+                ).toString()
             )
-        } else {
-            request.addOption("-N", threads)
-        }
-
-        return request
-    }
-
-    /**
-     * Default browser User-Agent sent with every request, mirroring what
-     * Seal (JunkFood02/Seal, another youtubedl-android app) always does -
-     * its own debug logs show a Chrome UA on every single download, cookies
-     * or not. yt-dlp's bare default UA gets flagged as a bot by plenty of
-     * sites and killed with "Unable to download webpage: HTTP Error 403:
-     * Forbidden" before extraction even starts; a normal browser UA gets
-     * past that check on the same sites that work fine in Seal.
-     */
-    private const val DEFAULT_USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) " +
-            "Chrome/124.0.0.0 Mobile Safari/537.36"
-
-    /**
-     * Options shared by every fetch/download request, mirroring what makes
-     * Termux / Seal work on sites the old build failed on:
-     *
-     *  1. --no-check-certificate: some servers (and some devices' CA stores)
-     *     fail TLS verification and kill the download with
-     *     CERTIFICATE_VERIFY_FAILED; Seal passes the same flag.
-     *  2. --cache-dir: youtubedl-android forces --no-cache-dir unless the
-     *     request carries its own --cache-dir. A real cache lets yt-dlp reuse
-     *     solved YouTube player challenges = faster extraction and far fewer
-     *     "confirm you're not a bot" walls; desktop/Termux yt-dlp caches by
-     *     default.
-     *  3. --add-header User-Agent: always sent (Seal does the same on every
-     *     request), so sites that 403 yt-dlp's bare default UA work here.
-     *     When cookies were harvested from the built-in browser, the exact
-     *     browser UA is sent instead - sessions are often tied to it.
-     *  4. --referer: defaults to the video page's own origin whenever the
-     *     extractor doesn't already set one. A lot of the "works in Seal /
-     *     Termux but 403s in Duck" reports are hotlink-protected CDNs that
-     *     check Referer + User-Agent together and reject anything with no
-     *     Referer at all (which is exactly what a bare yt-dlp request sends
-     *     - a real browser always sends the page it's on). yt-dlp only
-     *     falls back to this when the extractor hasn't already picked its
-     *     own Referer, so it never overrides a value a site-specific
-     *     extractor already needs.
-     *  5. --add-header Accept-Language: another header every real browser
-     *     sends on every request; some of the same WAFs that check UA also
-     *     flag requests missing it.
-     *  6. --cookies: for sites that only serve videos to logged-in browsers
-     *     (Instagram, Facebook, age-restricted YouTube...). Same feature as
-     *     Seal's cookie setting; imported via the built-in browser (Settings
-     *     > Cookies & Sign-in > Sign in with browser) or a cookies.txt file.
-     */
-    private fun applySharedOptions(context: Context, request: YoutubeDLRequest, url: String) {
-        request.addOption("--no-check-certificate")
-
-        runCatching {
-            val cacheDir = File(context.applicationContext.cacheDir, "yt-dlp-cache")
-            if (!cacheDir.exists()) cacheDir.mkdirs()
-            request.addOption("--cache-dir", cacheDir.absolutePath)
-        }
-
-        val browserUserAgent = if (Settings.cookiesEnabled) {
-            CookieStore.userAgent(context)?.takeIf { it.isNotBlank() }
-        } else {
-            null
-        }
-        request.addOption("--add-header", "User-Agent:${browserUserAgent ?: DEFAULT_USER_AGENT}")
-        request.addOption("--add-header", "Accept-Language:en-US,en;q=0.9")
-
-        deriveOrigin(url)?.let { origin ->
-            request.addOption("--referer", origin)
-        }
-
-        if (Settings.cookiesEnabled) {
-            val cookiesFile = CookieStore.file(context)
-            if (cookiesFile.exists()) {
-                request.addOption("--cookies", cookiesFile.absolutePath)
+            when (json.optString("status")) {
+                "completed" -> DownloadOutcome.Completed(json.str("filepath"))
+                "cancelled" -> DownloadOutcome.Cancelled
+                else -> DownloadOutcome.Failed(json.str("message") ?: "Download failed")
             }
         }
+    }
+
+    /** Asks a running download to stop. Cooperative; returns immediately. */
+    fun cancel(id: String) {
+        if (!Python.isStarted()) return
+        runCatching { bridge().callAttr("cancel", id) }
+    }
+
+    // ------------------------------------------------------------------ options
+
+    /**
+     * Request options shared by every fetch/download:
+     *
+     *  1. Accept-Language: another header every real browser sends on every
+     *     request; some WAFs flag requests missing it.
+     *  2. Referer: defaults to the video page's own origin. A lot of the
+     *     "works in Seal / Termux but 403s in Duck" reports are hotlink-
+     *     protected CDNs that check Referer + User-Agent together and reject a
+     *     request with no Referer at all. Extractors that set their own
+     *     Referer per request still win over this global default.
+     *  3. User-Agent: NOT forced any more. yt-dlp's own default is a current
+     *     Chrome UA, and - the important part - when a request is impersonated
+     *     (curl_cffi) yt-dlp drops any header that equals its default so the
+     *     browser fingerprint's own User-Agent is sent. A custom Android UA
+     *     would contradict the Chrome TLS fingerprint, which is exactly what
+     *     anti-bot systems detect. The one exception: when cookies were
+     *     harvested from the built-in browser, that browser's UA is sent,
+     *     because such sessions are often bound to it.
+     *  4. cookie_file: for sites that only serve videos to logged-in browsers
+     *     (Instagram, Facebook, age-restricted YouTube...). Imported via the
+     *     built-in browser (Settings > Cookies) or a cookies.txt file.
+     *  5. cache_dir: a real cache lets yt-dlp reuse solved YouTube player
+     *     challenges = faster extraction and far fewer "confirm you're not a
+     *     bot" walls.
+     */
+    private fun buildOptions(context: Context, url: String): JSONObject {
+        val appContext = context.applicationContext
+        val headers = JSONObject().put("Accept-Language", "en-US,en;q=0.9")
+
+        if (Settings.cookiesEnabled) {
+            CookieStore.userAgent(appContext)?.takeIf { it.isNotBlank() }?.let {
+                headers.put("User-Agent", it)
+            }
+        }
+        deriveOrigin(url)?.let { headers.put("Referer", it) }
+
+        val options = JSONObject()
+            .put("headers", headers)
+            .put("impersonate_all", Settings.impersonateAll)
+
+        runCatching {
+            val cacheDir = File(appContext.cacheDir, "yt-dlp-cache")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+            options.put("cache_dir", cacheDir.absolutePath)
+        }
+        if (Settings.cookiesEnabled) {
+            val cookiesFile = CookieStore.file(appContext)
+            if (cookiesFile.exists()) options.put("cookie_file", cookiesFile.absolutePath)
+        }
+        return options
     }
 
     /** "https://example.com/watch?v=123" -> "https://example.com/" */

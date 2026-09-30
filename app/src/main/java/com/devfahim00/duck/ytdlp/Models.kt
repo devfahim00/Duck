@@ -1,7 +1,64 @@
 package com.devfahim00.duck.ytdlp
 
-import com.yausername.youtubedl_android.mapper.VideoFormat
-import com.yausername.youtubedl_android.mapper.VideoInfo
+import org.json.JSONObject
+
+/** Video metadata returned by `ytdlp_bridge.fetch_formats` (replaces youtubedl-android's VideoInfo). */
+data class VideoMeta(
+    val title: String?,
+    val fulltitle: String?,
+    val webpageUrl: String?,
+    val thumbnail: String?,
+    val duration: Int,
+    val uploader: String?,
+    val formats: List<VideoFormat>
+) {
+    companion object {
+        fun fromJson(o: JSONObject): VideoMeta {
+            val arr = o.optJSONArray("formats")
+            val formats = buildList<VideoFormat> {
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        arr.optJSONObject(i)?.let { add(VideoFormat.fromJson(it)) }
+                    }
+                }
+            }
+            return VideoMeta(
+                title = o.str("title"),
+                fulltitle = o.str("fulltitle"),
+                webpageUrl = o.str("webpage_url"),
+                thumbnail = o.str("thumbnail"),
+                duration = o.optDouble("duration", 0.0).let { if (it.isNaN()) 0 else it.toInt() },
+                uploader = o.str("uploader"),
+                formats = formats
+            )
+        }
+    }
+}
+
+/** The handful of yt-dlp format fields the quality picker needs. */
+data class VideoFormat(
+    val height: Int,
+    val fps: Int,
+    val vcodec: String?,
+    val acodec: String?,
+    val fileSize: Long,
+    val fileSizeApproximate: Long
+) {
+    companion object {
+        fun fromJson(o: JSONObject) = VideoFormat(
+            height = o.optDouble("height", 0.0).let { if (it.isNaN()) 0 else it.toInt() },
+            fps = o.optDouble("fps", 0.0).let { if (it.isNaN()) 0 else it.toInt() },
+            vcodec = o.str("vcodec"),
+            acodec = o.str("acodec"),
+            fileSize = o.optDouble("filesize", 0.0).toLong(),
+            fileSizeApproximate = o.optDouble("filesize_approx", 0.0).toLong()
+        )
+    }
+}
+
+/** org.json turns JSON null into the string "null"; this returns a real null. */
+internal fun JSONObject.str(name: String): String? =
+    if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
 
 /** One selectable row in the quality picker. */
 data class FormatOption(
@@ -16,8 +73,8 @@ data class FormatOption(
 /** Turns raw yt-dlp format metadata into a clean, human friendly list. */
 object FormatOptions {
 
-    fun build(info: VideoInfo): List<FormatOption> {
-        val formats = info.formats ?: return emptyList()
+    fun build(info: VideoMeta): List<FormatOption> {
+        val formats = info.formats
         val hasVideoStreams = formats.any { hasVideoStream(it) }
         val hasAudioOnlyStreams = formats.any { !hasVideoStream(it) && hasAudioStream(it) }
 

@@ -8,8 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.devfahim00.duck.downloads.DownloadManager
 import com.devfahim00.duck.ytdlp.FormatOption
+import com.devfahim00.duck.ytdlp.VideoMeta
 import com.devfahim00.duck.ytdlp.YtDlpEngine
-import com.yausername.youtubedl_android.mapper.VideoInfo
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 sealed interface FetchState {
     data object Idle : FetchState
     data object Loading : FetchState
-    data class Ready(val info: VideoInfo, val options: List<FormatOption>) : FetchState
+    data class Ready(val info: VideoMeta, val options: List<FormatOption>) : FetchState
     data class Error(val message: String) : FetchState
 }
 

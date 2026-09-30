@@ -66,7 +66,7 @@ import com.devfahim00.duck.ui.theme.InkLow
 import com.devfahim00.duck.ui.theme.InkMedium
 import com.devfahim00.duck.util.FileUtils
 import com.devfahim00.duck.ytdlp.FormatOption
-import com.yausername.youtubedl_android.mapper.VideoInfo
+import com.devfahim00.duck.ytdlp.VideoMeta
 
 @Composable
 fun HomeScreen(viewModel: HomeViewModel, initialUrl: String?) {
@@ -439,7 +439,7 @@ private fun ErrorCard(message: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun VideoInfoCard(info: VideoInfo) {
+private fun VideoInfoCard(info: VideoMeta) {
     GlassCard(shape = RoundedCornerShape(20.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box {

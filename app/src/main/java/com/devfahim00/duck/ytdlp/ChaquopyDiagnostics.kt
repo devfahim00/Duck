@@ -5,12 +5,11 @@ import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 
 /**
- * STAGE 1 of the curl_cffi/Chaquopy migration.
- *
- * Deliberately NOT wired into [YtDlpEngine], [YtDlpUpdater] or
- * [com.devfahim00.duck.downloads.DownloadManager] yet - the existing
- * youtubedl-android engine keeps running exactly as before. This object
- * exists only so CI proves two things that a Gradle-only pip resolve can't:
+ * Diagnostic probe from STAGE 1 of the curl_cffi/Chaquopy migration. Since
+ * Stage 2 the real engine ([YtDlpEngine]) runs on the same runtime; this
+ * object stays as a standalone way to ask "did curl_cffi really load?"
+ * (prefer [YtDlpEngine.diagnostics] inside the app). It proved two things a
+ * Gradle-only pip resolve can't:
  *
  *  1. The Chaquopy plugin + a real CPython 3.13 runtime + yt-dlp + curl_cffi
  *     actually link and package into an arm64-v8a APK (not just "pip found
